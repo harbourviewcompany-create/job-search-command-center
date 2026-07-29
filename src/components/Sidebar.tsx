@@ -9,13 +9,15 @@ import {
   Users,
   Settings,
   Target,
+  DollarSign,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const nav = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/dashboard', label: "Today's actions", icon: LayoutDashboard },
   { href: '/jobs', label: 'Jobs', icon: Briefcase },
   { href: '/applications', label: 'Pipeline', icon: Kanban },
+  { href: '/opportunities', label: 'Cash plays', icon: DollarSign },
   { href: '/contacts', label: 'Contacts', icon: Users },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
@@ -31,7 +33,7 @@ export function Sidebar() {
         </div>
         <div>
           <p className="text-sm font-semibold leading-tight">Command Center</p>
-          <p className="text-xs text-slate-500">Job Search</p>
+          <p className="text-xs text-slate-500">Opportunities</p>
         </div>
       </div>
 
@@ -57,7 +59,7 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-slate-200 p-4">
-        <p className="text-xs text-slate-400">Phase 1 MVP · Single user</p>
+        <p className="text-xs text-slate-400">Tyler · Ottawa · BD & trade</p>
       </div>
     </aside>
   )
