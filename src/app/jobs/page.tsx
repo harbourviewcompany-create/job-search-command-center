@@ -19,7 +19,7 @@ export default async function JobsPage({
     .from('jobs')
     .select('*, companies(*)')
     .eq('status', statusFilter)
-    .order('fetched_at', { ascending: false })
+    .order('fit_score', { ascending: false, nullsFirst: false })
 
   const typedJobs = (jobs ?? []) as JobWithCompany[]
 
@@ -29,7 +29,8 @@ export default async function JobsPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Jobs</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Triage new postings and manage your interested list.
+            Ranked by fit to your BD / account management / trade profile. Mark
+            Interested to stage a tailored package.
           </p>
         </div>
         <div className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1">
@@ -49,7 +50,7 @@ export default async function JobsPage({
           <div className="card px-5 py-12 text-center text-sm text-slate-400">
             {tab === 'interested'
               ? 'No interested jobs yet. Mark some from the triage list.'
-              : 'No jobs waiting for triage. Add one manually above or wait for the daily pull (Phase 4).'}
+              : 'No jobs waiting for triage. Add one manually above — it will auto-score against your profile.'}
           </div>
         )}
         {typedJobs.map((job) => (
