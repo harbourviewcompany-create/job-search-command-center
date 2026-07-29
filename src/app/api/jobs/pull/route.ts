@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { createServiceClient } from '@/lib/supabase/server'
 
 /**
  * Manual trigger for daily job pull (for testing without waiting for cron).
@@ -17,15 +18,14 @@ export async function POST() {
     )
   }
 
-  const res = await fetch(`${supabaseUrl}/functions/v1/daily-job-pull`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${serviceKey}`,
-    },
-    body: JSON.stringify({ source: 'manual', triggered_at: new Date().toISOString() }),
+  const supabase = createServiceClient()
+  const { data, error } = await supabase.functions.invoke('daily-job-pull', {
+    body: { source: 'manual', triggered_at: new Date().toISOString() },
   })
 
-  const body = await res.json().catch(() => ({}))
-  return NextResponse.json(body, { status: res.status })
+  if (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json(data ?? { ok: true })
 }

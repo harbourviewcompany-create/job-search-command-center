@@ -96,7 +96,7 @@ ${bullets
 
 I would welcome a short conversation about how I can help open markets and deepen client relationships for your team.
 
-Tyler Campbell
+${profile.name}
 ${profile.email}
 ${profile.linkedin}
 `

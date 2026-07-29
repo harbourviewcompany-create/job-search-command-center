@@ -25,12 +25,7 @@ export type OpportunityType =
   | 'outreach'
   | 'recruiting'
   | 'marketplace'
-export type OpportunityStatus =
-  | 'active'
-  | 'in_progress'
-  | 'won'
-  | 'dismissed'
-  | 'expired'
+export type OpportunityStatus = 'active' | 'in_progress' | 'won' | 'dismissed' | 'expired'
 
 export interface Database {
   public: {
@@ -293,6 +288,27 @@ export interface Database {
           },
         ]
       }
+      settings: {
+        Row: {
+          id: string
+          key: string
+          value: Json
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          key: string
+          value: Json
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          key?: string
+          value?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
       opportunities: {
         Row: {
           id: string
@@ -350,27 +366,6 @@ export interface Database {
         }
         Relationships: []
       }
-      settings: {
-        Row: {
-          id: string
-          key: string
-          value: Json
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          key: string
-          value: Json
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          key?: string
-          value?: Json
-          updated_at?: string
-        }
-        Relationships: []
-      }
     }
     Views: Record<never, never>
     Functions: Record<never, never>
@@ -384,8 +379,8 @@ export type Job = Database['public']['Tables']['jobs']['Row']
 export type Application = Database['public']['Tables']['applications']['Row']
 export type Contact = Database['public']['Tables']['contacts']['Row']
 export type OutreachMessage = Database['public']['Tables']['outreach_messages']['Row']
-export type Opportunity = Database['public']['Tables']['opportunities']['Row']
 export type Setting = Database['public']['Tables']['settings']['Row']
+export type Opportunity = Database['public']['Tables']['opportunities']['Row']
 
 export type JobWithCompany = Job & {
   companies: Company | null

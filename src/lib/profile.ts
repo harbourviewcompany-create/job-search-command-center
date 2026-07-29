@@ -1,4 +1,6 @@
-/** Structured profile for Tyler — also stored in settings.profile */
+/** Structured profile — sourced from settings.profile via getProfile(), falls back to DEFAULT_PROFILE */
+
+import type { createClient } from '@/lib/supabase/server'
 
 export interface Profile {
   name: string
@@ -83,6 +85,26 @@ export const DEFAULT_PROFILE: Profile = {
     'Business Development Agent, Allstate — prospecting, referral networks, commercial & personal lines',
     'Top-performing sales, Southbank Dodge — full-cycle automotive sales and referrals',
   ],
+}
+
+type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>
+
+/** Load the profile from settings.profile, falling back to DEFAULT_PROFILE for missing/malformed fields. */
+export async function getProfile(supabase: SupabaseServerClient): Promise<Profile> {
+  const { data } = await supabase
+    .from('settings')
+    .select('value')
+    .eq('key', 'profile')
+    .maybeSingle()
+
+  const stored = data?.value as Partial<Profile> | undefined
+  if (!stored) return DEFAULT_PROFILE
+
+  return {
+    ...DEFAULT_PROFILE,
+    ...stored,
+    constraints: { ...DEFAULT_PROFILE.constraints, ...(stored.constraints ?? {}) },
+  }
 }
 
 /** Base resume markdown used for tailoring */

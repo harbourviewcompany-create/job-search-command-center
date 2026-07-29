@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { scoreJobAgainstProfile } from '@/lib/scoring'
-import { DEFAULT_PROFILE } from '@/lib/profile'
+import { getProfile } from '@/lib/profile'
 import { parseLinkedInJobId } from '@/lib/linkedin'
 
 export async function importLinkedInJob(formData: FormData) {
@@ -43,10 +43,8 @@ export async function importLinkedInJob(formData: FormData) {
     companyId = created.id
   }
 
-  const fit = scoreJobAgainstProfile(
-    { title, description, location, remote },
-    DEFAULT_PROFILE
-  )
+  const profile = await getProfile(supabase)
+  const fit = scoreJobAgainstProfile({ title, description, location, remote }, profile)
 
   // Dedupe on linkedin + external_id
   const { data: existing } = await supabase

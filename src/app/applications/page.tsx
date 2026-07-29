@@ -20,6 +20,7 @@ export default async function ApplicationsPage() {
     .from('applications')
     .select('*, jobs(*, companies(*))')
     .order('updated_at', { ascending: false })
+    .limit(200)
 
   const apps = (data ?? []) as ApplicationWithJob[]
 
