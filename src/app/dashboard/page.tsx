@@ -1,12 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatDate, daysSince } from '@/lib/utils'
+import { formatDate } from '@/lib/utils'
 import Link from 'next/link'
 import {
   Briefcase,
   CheckCircle2,
   Clock,
-  AlertCircle,
+  Zap,
   ArrowRight,
+  DollarSign,
 } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
@@ -18,46 +19,49 @@ export default async function DashboardPage() {
     { count: foundCount },
     { count: interestedCount },
     { count: appliedCount },
-    { count: interviewCount },
-    { data: recentJobs },
-    { data: dueFollowUps },
+    { data: topJobs },
+    { data: cashPlays },
+    { data: needsPackage },
   ] = await Promise.all([
     supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('status', 'found'),
     supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('status', 'interested'),
     supabase.from('applications').select('*', { count: 'exact', head: true }).eq('status', 'applied'),
-    supabase.from('applications').select('*', { count: 'exact', head: true }).eq('status', 'interview'),
     supabase
       .from('jobs')
-      .select('id, title, location, remote, status, fetched_at, companies(name)')
+      .select('id, title, location, remote, fit_score, fit_reasons, companies(name)')
       .eq('status', 'found')
-      .order('fetched_at', { ascending: false })
-      .limit(8),
+      .order('fit_score', { ascending: false, nullsFirst: false })
+      .limit(5),
     supabase
-      .from('outreach_messages')
-      .select('id, type, scheduled_for, applications(jobs(title, companies(name)))')
-      .eq('status', 'drafted')
-      .lte('scheduled_for', new Date().toISOString().slice(0, 10))
-      .order('scheduled_for', { ascending: true })
+      .from('opportunities')
+      .select('*')
+      .eq('status', 'active')
+      .order('fit_score', { ascending: false })
+      .limit(5),
+    supabase
+      .from('applications')
+      .select('id, jobs(title, companies(name))')
+      .eq('status', 'interested')
+      .is('resume_version_id', null)
       .limit(5),
   ])
 
   const stats = [
-    { label: 'New to triage', value: foundCount ?? 0, icon: Briefcase, color: 'text-blue-600 bg-blue-50' },
+    { label: 'To triage', value: foundCount ?? 0, icon: Briefcase, color: 'text-blue-600 bg-blue-50' },
     { label: 'Interested', value: interestedCount ?? 0, icon: CheckCircle2, color: 'text-emerald-600 bg-emerald-50' },
     { label: 'Applied', value: appliedCount ?? 0, icon: Clock, color: 'text-amber-600 bg-amber-50' },
-    { label: 'Interview', value: interviewCount ?? 0, icon: AlertCircle, color: 'text-purple-600 bg-purple-50' },
+    { label: 'Cash plays', value: cashPlays?.length ?? 0, icon: DollarSign, color: 'text-violet-600 bg-violet-50' },
   ]
 
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Today's actions</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Pipeline snapshot and items that need your attention.
+          Highest-fit jobs and commercial plays. Generate a package, apply, or run a cash play.
         </p>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {stats.map(({ label, value, icon: Icon, color }) => (
           <div key={label} className="card p-5">
@@ -72,64 +76,127 @@ export default async function DashboardPage() {
         ))}
       </div>
 
+      {/* Action queue */}
+      <section className="card border-brand-100 bg-gradient-to-br from-white to-brand-50/30">
+        <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
+          <Zap className="h-4 w-4 text-brand-600" />
+          <h2 className="font-medium">Do these next</h2>
+        </div>
+        <ol className="divide-y divide-slate-100">
+          {(needsPackage ?? []).length === 0 && (topJobs ?? []).length === 0 && (
+            <li className="px-5 py-8 text-center text-sm text-slate-400">
+              Add jobs on the Jobs page (or run migration 002 for cash plays). Top fits will show here.
+            </li>
+          )}
+          {(needsPackage ?? []).map((app: any, i: number) => (
+            <li key={app.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-brand-600">
+                  {i + 1}. Generate package
+                </p>
+                <p className="truncate text-sm font-medium">
+                  {app.jobs?.title ?? 'Application'}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {app.jobs?.companies?.name ?? ''}
+                </p>
+              </div>
+              <Link href={`/applications/${app.id}`} className="btn-primary shrink-0 text-xs">
+                Open
+              </Link>
+            </li>
+          ))}
+          {(topJobs ?? []).slice(0, 3).map((job: any, i: number) => (
+            <li key={job.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-slate-500">
+                  {(needsPackage?.length ?? 0) + i + 1}. Triage high-fit job
+                  {job.fit_score != null && (
+                    <span className="ml-2 badge bg-brand-50 text-brand-700">
+                      {job.fit_score}
+                    </span>
+                  )}
+                </p>
+                <p className="truncate text-sm font-medium">{job.title}</p>
+                <p className="text-xs text-slate-500">
+                  {job.companies?.name ?? 'Unknown'}
+                  {job.location ? ` · ${job.location}` : ''}
+                </p>
+              </div>
+              <Link href="/jobs" className="btn-secondary shrink-0 text-xs">
+                Triage
+              </Link>
+            </li>
+          ))}
+        </ol>
+      </section>
+
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* New postings */}
         <section className="card">
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-            <h2 className="font-medium">New postings to triage</h2>
+            <h2 className="font-medium">Best job matches</h2>
             <Link href="/jobs" className="btn-ghost text-xs">
-              View all <ArrowRight className="h-3.5 w-3.5" />
+              All jobs <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
           <ul className="divide-y divide-slate-100">
-            {(recentJobs ?? []).length === 0 && (
+            {(topJobs ?? []).length === 0 && (
               <li className="px-5 py-8 text-center text-sm text-slate-400">
-                No new jobs. Add one manually or wait for the daily pull.
+                No scored jobs yet. Add one manually — it will auto-score against your profile.
               </li>
             )}
-            {(recentJobs ?? []).map((job: any) => (
-              <li key={job.id} className="flex items-start justify-between gap-3 px-5 py-3.5">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{job.title}</p>
-                  <p className="text-xs text-slate-500">
-                    {job.companies?.name ?? 'Unknown company'}
-                    {job.location ? ` · ${job.location}` : ''}
-                    {job.remote ? ' · Remote' : ''}
-                  </p>
+            {(topJobs ?? []).map((job: any) => (
+              <li key={job.id} className="px-5 py-3.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{job.title}</p>
+                    <p className="text-xs text-slate-500">
+                      {job.companies?.name ?? 'Unknown'}
+                      {job.location ? ` · ${job.location}` : ''}
+                      {job.remote ? ' · Remote' : ''}
+                    </p>
+                    {Array.isArray(job.fit_reasons) && job.fit_reasons[0] && (
+                      <p className="mt-0.5 text-xs text-slate-400">{job.fit_reasons[0]}</p>
+                    )}
+                  </div>
+                  {job.fit_score != null && (
+                    <span className="badge shrink-0 bg-brand-50 text-brand-700">
+                      {job.fit_score}
+                    </span>
+                  )}
                 </div>
-                <span className="shrink-0 text-xs text-slate-400">
-                  {formatDate(job.fetched_at)}
-                </span>
               </li>
             ))}
           </ul>
         </section>
 
-        {/* Due follow-ups */}
         <section className="card">
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-            <h2 className="font-medium">Due follow-ups</h2>
-            <Link href="/applications" className="btn-ghost text-xs">
-              Pipeline <ArrowRight className="h-3.5 w-3.5" />
+            <h2 className="font-medium">Cash plays</h2>
+            <Link href="/opportunities" className="btn-ghost text-xs">
+              All plays <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
           <ul className="divide-y divide-slate-100">
-            {(dueFollowUps ?? []).length === 0 && (
+            {(cashPlays ?? []).length === 0 && (
               <li className="px-5 py-8 text-center text-sm text-slate-400">
-                No follow-ups due. (Phase 3/4 will populate these.)
+                Run migration 002_opportunity_centre.sql to seed commercial plays.
               </li>
             )}
-            {(dueFollowUps ?? []).map((msg: any) => (
-              <li key={msg.id} className="px-5 py-3.5">
-                <p className="text-sm font-medium">
-                  {msg.applications?.jobs?.title ?? 'Application'}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {msg.type.replace('_', ' ')} · due {formatDate(msg.scheduled_for)}
-                  {daysSince(msg.scheduled_for) !== null &&
-                    daysSince(msg.scheduled_for)! > 0 &&
-                    ` (${daysSince(msg.scheduled_for)}d overdue)`}
-                </p>
+            {(cashPlays ?? []).map((op: any) => (
+              <li key={op.id} className="px-5 py-3.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{op.title}</p>
+                    <p className="text-xs text-slate-500">
+                      {op.estimated_value ?? '—'}
+                      {op.time_to_cash ? ` · ${op.time_to_cash}` : ''}
+                    </p>
+                  </div>
+                  <span className="badge shrink-0 bg-violet-50 text-violet-700 capitalize">
+                    {op.type.replace('_', ' ')}
+                  </span>
+                </div>
               </li>
             ))}
           </ul>
