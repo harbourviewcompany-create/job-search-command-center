@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import type { Json } from '@/types/database'
 
 export async function saveSettings(formData: FormData) {
   const supabase = await createClient()
@@ -21,7 +22,7 @@ export async function saveSettings(formData: FormData) {
     .map((t) => t.trim())
     .filter(Boolean)
 
-  const upserts = [
+  const upserts: { key: string; value: Json }[] = [
     {
       key: 'search_terms',
       value: { terms, locations },
