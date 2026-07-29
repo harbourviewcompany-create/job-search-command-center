@@ -16,7 +16,7 @@ export type ApplicationStatus =
   | 'closed'
 export type OutreachType = 'initial' | 'follow_up_1' | 'follow_up_2'
 export type OutreachStatus = 'drafted' | 'sent' | 'skipped'
-export type JobSource = 'indeed' | 'ziprecruiter' | 'manual' | 'adzuna'
+export type JobSource = 'indeed' | 'ziprecruiter' | 'manual' | 'adzuna' | 'linkedin'
 
 export interface Database {
   public: {
@@ -211,7 +211,7 @@ export interface Database {
           id?: string
           application_id?: string
           contact_id?: string | null
-          type?: OutreachType
+          type: OutreachType
           draft_body?: string | null
           status?: OutreachStatus
           scheduled_for?: string | null
