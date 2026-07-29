@@ -16,7 +16,7 @@ export type ApplicationStatus =
   | 'closed'
 export type OutreachType = 'initial' | 'follow_up_1' | 'follow_up_2'
 export type OutreachStatus = 'drafted' | 'sent' | 'skipped'
-export type JobSource = 'indeed' | 'ziprecruiter' | 'manual'
+export type JobSource = 'indeed' | 'ziprecruiter' | 'manual' | 'adzuna'
 
 export interface Database {
   public: {
@@ -59,6 +59,8 @@ export interface Database {
           posted_at: string | null
           fetched_at: string
           status: JobStatus
+          fit_score?: number | null
+          fit_reasons?: string[] | null
         }
         Insert: {
           id?: string
@@ -74,6 +76,8 @@ export interface Database {
           posted_at?: string | null
           fetched_at?: string
           status?: JobStatus
+          fit_score?: number | null
+          fit_reasons?: string[] | null
         }
         Update: {
           id?: string
@@ -89,6 +93,8 @@ export interface Database {
           posted_at?: string | null
           fetched_at?: string
           status?: JobStatus
+          fit_score?: number | null
+          fit_reasons?: string[] | null
         }
       }
       applications: {
@@ -237,7 +243,6 @@ export interface Database {
   }
 }
 
-// Convenience row types
 export type Company = Database['public']['Tables']['companies']['Row']
 export type Job = Database['public']['Tables']['jobs']['Row']
 export type Application = Database['public']['Tables']['applications']['Row']
