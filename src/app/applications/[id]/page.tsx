@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { formatDate } from '@/lib/utils'
 import { ApplicationDetailActions } from '@/components/ApplicationDetailActions'
 import { NotesForm } from '@/components/NotesForm'
+import { GeneratePackageButton } from '@/components/GeneratePackageButton'
 import Link from 'next/link'
 import { ArrowLeft, ExternalLink } from 'lucide-react'
 
@@ -25,6 +26,7 @@ export default async function ApplicationDetailPage({
   if (!app) notFound()
 
   const job = app.jobs as any
+  const hasPackage = Boolean(app.resume_version_id || app.cover_note)
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -44,6 +46,18 @@ export default async function ApplicationDetailPage({
               {job.location ? ` · ${job.location}` : ''}
               {job.remote ? ' · Remote' : ''}
             </p>
+            {job.fit_score != null && (
+              <p className="mt-2 text-sm">
+                <span className="badge bg-brand-50 text-brand-700">
+                  Fit {job.fit_score}/100
+                </span>
+                {Array.isArray(job.fit_reasons) && job.fit_reasons.length > 0 && (
+                  <span className="ml-2 text-xs text-slate-500">
+                    {job.fit_reasons.slice(0, 2).join(' · ')}
+                  </span>
+                )}
+              </p>
+            )}
           </div>
           <span className="badge bg-brand-50 text-brand-700 capitalize">
             {app.status}
@@ -84,6 +98,25 @@ export default async function ApplicationDetailPage({
         </div>
       </div>
 
+      <section className="card p-6">
+        <h2 className="font-medium">Tailored package</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          One click builds a resume and cover note weighted to this job. Copy and
+          submit via the listing — then mark Applied.
+        </p>
+        <div className="mt-4">
+          <GeneratePackageButton
+            applicationId={app.id}
+            hasPackage={hasPackage}
+          />
+        </div>
+        {app.cover_note && !hasPackage && (
+          <pre className="mt-4 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs">
+            {app.cover_note}
+          </pre>
+        )}
+      </section>
+
       {job.description && (
         <section className="card p-6">
           <h2 className="font-medium">Job description</h2>
@@ -96,15 +129,6 @@ export default async function ApplicationDetailPage({
       <section className="card p-6">
         <h2 className="font-medium">Notes</h2>
         <NotesForm applicationId={app.id} initialNotes={app.notes ?? ''} />
-      </section>
-
-      <section className="card p-6">
-        <h2 className="font-medium">Tailored materials</h2>
-        <p className="mt-2 text-sm text-slate-500">
-          Resume tailoring, cover notes, contact research, and outreach drafts
-          arrive in Phase 2–3. For now, apply via the original listing and track
-          status here.
-        </p>
       </section>
     </div>
   )
