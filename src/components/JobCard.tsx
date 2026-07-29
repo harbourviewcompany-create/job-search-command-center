@@ -7,7 +7,7 @@ import { ExternalLink, ThumbsUp, ThumbsDown, HelpCircle } from 'lucide-react'
 import type { JobWithCompany } from '@/types/database'
 
 interface Props {
-  job: JobWithCompany
+  job: JobWithCompany & { fit_score?: number | null; fit_reasons?: string[] | null }
 }
 
 export function JobCard({ job }: Props) {
@@ -23,12 +23,22 @@ export function JobCard({ job }: Props) {
     <article className="card p-5 transition-opacity" style={{ opacity: pending ? 0.6 : 1 }}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h3 className="font-medium leading-snug">{job.title}</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-medium leading-snug">{job.title}</h3>
+            {job.fit_score != null && (
+              <span className="badge bg-brand-50 text-brand-700">{job.fit_score}</span>
+            )}
+          </div>
           <p className="mt-0.5 text-sm text-slate-500">
             {job.companies?.name ?? 'Unknown company'}
             {job.location ? ` · ${job.location}` : ''}
             {job.remote ? ' · Remote' : ''}
           </p>
+          {Array.isArray(job.fit_reasons) && job.fit_reasons.length > 0 && (
+            <p className="mt-1 text-xs text-slate-400">
+              {job.fit_reasons.slice(0, 2).join(' · ')}
+            </p>
+          )}
           {job.description && (
             <p className="mt-2 line-clamp-3 text-sm text-slate-600">{job.description}</p>
           )}
