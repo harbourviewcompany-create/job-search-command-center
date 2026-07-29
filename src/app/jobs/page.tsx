@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { JobCard } from '@/components/JobCard'
 import { AddJobForm } from '@/components/AddJobForm'
+import { PullJobsButton } from '@/components/PullJobsButton'
 import type { JobWithCompany } from '@/types/database'
 
 export const dynamic = 'force-dynamic'
@@ -29,17 +30,20 @@ export default async function JobsPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Jobs</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Ranked by fit to your BD / account management / trade profile. Mark
-            Interested to stage a tailored package.
+            Ranked by fit. Daily pull uses Adzuna (Canada) + your saved search
+            terms. Mark Interested to stage a tailored package.
           </p>
         </div>
-        <div className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1">
-          <TabLink href="/jobs?tab=found" active={tab !== 'interested'}>
-            To triage
-          </TabLink>
-          <TabLink href="/jobs?tab=interested" active={tab === 'interested'}>
-            Interested
-          </TabLink>
+        <div className="flex flex-col items-end gap-2">
+          <PullJobsButton />
+          <div className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1">
+            <TabLink href="/jobs?tab=found" active={tab !== 'interested'}>
+              To triage
+            </TabLink>
+            <TabLink href="/jobs?tab=interested" active={tab === 'interested'}>
+              Interested
+            </TabLink>
+          </div>
         </div>
       </div>
 
@@ -50,7 +54,7 @@ export default async function JobsPage({
           <div className="card px-5 py-12 text-center text-sm text-slate-400">
             {tab === 'interested'
               ? 'No interested jobs yet. Mark some from the triage list.'
-              : 'No jobs waiting for triage. Add one manually above — it will auto-score against your profile.'}
+              : 'No jobs yet. Click “Pull jobs now” (after Adzuna is configured) or add one manually.'}
           </div>
         )}
         {typedJobs.map((job) => (
