@@ -69,7 +69,7 @@ export async function importLinkedInJob(formData: FormData) {
         fit_score: fit.score,
         fit_reasons: fit.reasons,
         fetched_at: new Date().toISOString(),
-      } as any)
+      })
       .eq('id', existing.id)
   } else {
     const { error } = await supabase.from('jobs').insert({
@@ -84,7 +84,7 @@ export async function importLinkedInJob(formData: FormData) {
       status: 'found',
       fit_score: fit.score,
       fit_reasons: fit.reasons,
-    } as any)
+    })
     if (error) throw new Error(error.message)
   }
 

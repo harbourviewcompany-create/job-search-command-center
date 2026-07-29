@@ -17,6 +17,20 @@ export type ApplicationStatus =
 export type OutreachType = 'initial' | 'follow_up_1' | 'follow_up_2'
 export type OutreachStatus = 'drafted' | 'sent' | 'skipped'
 export type JobSource = 'indeed' | 'ziprecruiter' | 'manual' | 'adzuna' | 'linkedin'
+export type OpportunityType =
+  | 'job_lead'
+  | 'contract'
+  | 'freelance'
+  | 'productized_service'
+  | 'outreach'
+  | 'recruiting'
+  | 'marketplace'
+export type OpportunityStatus =
+  | 'active'
+  | 'in_progress'
+  | 'won'
+  | 'dismissed'
+  | 'expired'
 
 export interface Database {
   public: {
@@ -43,6 +57,7 @@ export interface Database {
           notes?: string | null
           created_at?: string
         }
+        Relationships: []
       }
       jobs: {
         Row: {
@@ -59,8 +74,8 @@ export interface Database {
           posted_at: string | null
           fetched_at: string
           status: JobStatus
-          fit_score?: number | null
-          fit_reasons?: string[] | null
+          fit_score: number | null
+          fit_reasons: string[] | null
         }
         Insert: {
           id?: string
@@ -96,6 +111,15 @@ export interface Database {
           fit_score?: number | null
           fit_reasons?: string[] | null
         }
+        Relationships: [
+          {
+            foreignKeyName: 'jobs_company_id_fkey'
+            columns: ['company_id']
+            isOneToOne: false
+            referencedRelation: 'companies'
+            referencedColumns: ['id']
+          },
+        ]
       }
       applications: {
         Row: {
@@ -128,6 +152,22 @@ export interface Database {
           notes?: string | null
           updated_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: 'applications_job_id_fkey'
+            columns: ['job_id']
+            isOneToOne: true
+            referencedRelation: 'jobs'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'applications_resume_version_id_fkey'
+            columns: ['resume_version_id']
+            isOneToOne: false
+            referencedRelation: 'resume_versions'
+            referencedColumns: ['id']
+          },
+        ]
       }
       resume_versions: {
         Row: {
@@ -151,6 +191,15 @@ export interface Database {
           docx_url?: string | null
           created_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: 'resume_versions_application_id_fkey'
+            columns: ['application_id']
+            isOneToOne: false
+            referencedRelation: 'applications'
+            referencedColumns: ['id']
+          },
+        ]
       }
       contacts: {
         Row: {
@@ -183,6 +232,15 @@ export interface Database {
           source?: string | null
           created_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: 'contacts_company_id_fkey'
+            columns: ['company_id']
+            isOneToOne: false
+            referencedRelation: 'companies'
+            referencedColumns: ['id']
+          },
+        ]
       }
       outreach_messages: {
         Row: {
@@ -211,13 +269,86 @@ export interface Database {
           id?: string
           application_id?: string
           contact_id?: string | null
-          type: OutreachType
+          type?: OutreachType
           draft_body?: string | null
           status?: OutreachStatus
           scheduled_for?: string | null
           sent_at?: string | null
           created_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: 'outreach_messages_application_id_fkey'
+            columns: ['application_id']
+            isOneToOne: false
+            referencedRelation: 'applications'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'outreach_messages_contact_id_fkey'
+            columns: ['contact_id']
+            isOneToOne: false
+            referencedRelation: 'contacts'
+            referencedColumns: ['id']
+          },
+        ]
+      }
+      opportunities: {
+        Row: {
+          id: string
+          type: OpportunityType
+          title: string
+          description: string | null
+          company_or_channel: string | null
+          estimated_value: string | null
+          effort: string | null
+          time_to_cash: string | null
+          fit_score: number | null
+          fit_reasons: string[] | null
+          status: OpportunityStatus
+          action_url: string | null
+          draft_pitch: string | null
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          type: OpportunityType
+          title: string
+          description?: string | null
+          company_or_channel?: string | null
+          estimated_value?: string | null
+          effort?: string | null
+          time_to_cash?: string | null
+          fit_score?: number | null
+          fit_reasons?: string[] | null
+          status?: OpportunityStatus
+          action_url?: string | null
+          draft_pitch?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          type?: OpportunityType
+          title?: string
+          description?: string | null
+          company_or_channel?: string | null
+          estimated_value?: string | null
+          effort?: string | null
+          time_to_cash?: string | null
+          fit_score?: number | null
+          fit_reasons?: string[] | null
+          status?: OpportunityStatus
+          action_url?: string | null
+          draft_pitch?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       settings: {
         Row: {
@@ -238,8 +369,13 @@ export interface Database {
           value?: Json
           updated_at?: string
         }
+        Relationships: []
       }
     }
+    Views: Record<never, never>
+    Functions: Record<never, never>
+    Enums: Record<never, never>
+    CompositeTypes: Record<never, never>
   }
 }
 
@@ -248,6 +384,7 @@ export type Job = Database['public']['Tables']['jobs']['Row']
 export type Application = Database['public']['Tables']['applications']['Row']
 export type Contact = Database['public']['Tables']['contacts']['Row']
 export type OutreachMessage = Database['public']['Tables']['outreach_messages']['Row']
+export type Opportunity = Database['public']['Tables']['opportunities']['Row']
 export type Setting = Database['public']['Tables']['settings']['Row']
 
 export type JobWithCompany = Job & {

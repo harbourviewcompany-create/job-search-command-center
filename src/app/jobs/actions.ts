@@ -85,7 +85,7 @@ export async function addManualJob(formData: FormData) {
     status: 'found',
     fit_score: fit.score,
     fit_reasons: fit.reasons,
-  } as any)
+  })
 
   if (error) throw new Error(error.message)
 
@@ -105,7 +105,7 @@ export async function rescoreAllJobs() {
     const fit = scoreJobAgainstProfile(job, DEFAULT_PROFILE)
     await supabase
       .from('jobs')
-      .update({ fit_score: fit.score, fit_reasons: fit.reasons } as any)
+      .update({ fit_score: fit.score, fit_reasons: fit.reasons })
       .eq('id', job.id)
   }
 
