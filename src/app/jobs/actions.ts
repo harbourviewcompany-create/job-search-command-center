@@ -2,6 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { scoreJobAgainstProfile } from '@/lib/scoring'
+import { DEFAULT_PROFILE } from '@/lib/profile'
 import type { JobStatus } from '@/types/database'
 
 export async function updateJobStatus(jobId: string, status: JobStatus) {
@@ -14,7 +16,6 @@ export async function updateJobStatus(jobId: string, status: JobStatus) {
 
   if (error) throw new Error(error.message)
 
-  // When marked interested, create an application row if none exists
   if (status === 'interested') {
     const { data: existing } = await supabase
       .from('applications')
@@ -49,7 +50,6 @@ export async function addManualJob(formData: FormData) {
     throw new Error('Title and company are required')
   }
 
-  // Upsert company by name
   let companyId: string | null = null
   const { data: existingCompany } = await supabase
     .from('companies')
@@ -69,6 +69,11 @@ export async function addManualJob(formData: FormData) {
     companyId = created.id
   }
 
+  const fit = scoreJobAgainstProfile(
+    { title, description, location, remote },
+    DEFAULT_PROFILE
+  )
+
   const { error } = await supabase.from('jobs').insert({
     source: 'manual',
     title,
@@ -78,9 +83,31 @@ export async function addManualJob(formData: FormData) {
     description,
     remote,
     status: 'found',
-  })
+    fit_score: fit.score,
+    fit_reasons: fit.reasons,
+  } as any)
 
   if (error) throw new Error(error.message)
+
+  revalidatePath('/jobs')
+  revalidatePath('/dashboard')
+}
+
+export async function rescoreAllJobs() {
+  const supabase = await createClient()
+
+  const { data: jobs } = await supabase
+    .from('jobs')
+    .select('id, title, description, location, remote')
+    .in('status', ['found', 'interested'])
+
+  for (const job of jobs ?? []) {
+    const fit = scoreJobAgainstProfile(job, DEFAULT_PROFILE)
+    await supabase
+      .from('jobs')
+      .update({ fit_score: fit.score, fit_reasons: fit.reasons } as any)
+      .eq('id', job.id)
+  }
 
   revalidatePath('/jobs')
   revalidatePath('/dashboard')
