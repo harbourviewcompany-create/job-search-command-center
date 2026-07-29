@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { JobCard } from '@/components/JobCard'
 import { AddJobForm } from '@/components/AddJobForm'
 import { PullJobsButton } from '@/components/PullJobsButton'
+import { LinkedInImportForm } from '@/components/LinkedInImportForm'
+import { LinkedInSearchLinks } from '@/components/LinkedInSearchLinks'
 import type { JobWithCompany } from '@/types/database'
 
 export const dynamic = 'force-dynamic'
@@ -16,11 +18,21 @@ export default async function JobsPage({
 
   const statusFilter = tab === 'interested' ? 'interested' : 'found'
 
-  const { data: jobs } = await supabase
-    .from('jobs')
-    .select('*, companies(*)')
-    .eq('status', statusFilter)
-    .order('fit_score', { ascending: false, nullsFirst: false })
+  const [{ data: jobs }, { data: searchSetting }] = await Promise.all([
+    supabase
+      .from('jobs')
+      .select('*, companies(*)')
+      .eq('status', statusFilter)
+      .order('fit_score', { ascending: false, nullsFirst: false }),
+    supabase.from('settings').select('value').eq('key', 'search_terms').maybeSingle(),
+  ])
+
+  const search = (searchSetting?.value as { terms?: string[]; locations?: string[] }) ?? {}
+  const terms = search.terms ?? [
+    'business development manager',
+    'account executive',
+  ]
+  const locations = search.locations ?? ['Ottawa', 'Ontario', 'Remote']
 
   const typedJobs = (jobs ?? []) as JobWithCompany[]
 
@@ -30,8 +42,8 @@ export default async function JobsPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Jobs</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Ranked by fit. Daily pull uses Adzuna (Canada) + your saved search
-            terms. Mark Interested to stage a tailored package.
+            Ranked by fit. Pull from Adzuna, open LinkedIn searches, or import a
+            LinkedIn listing. Mark Interested to stage a tailored package.
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
@@ -47,14 +59,19 @@ export default async function JobsPage({
         </div>
       </div>
 
-      <AddJobForm />
+      <LinkedInSearchLinks terms={terms} locations={locations} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <LinkedInImportForm />
+        <AddJobForm />
+      </div>
 
       <div className="space-y-3">
         {typedJobs.length === 0 && (
           <div className="card px-5 py-12 text-center text-sm text-slate-400">
             {tab === 'interested'
               ? 'No interested jobs yet. Mark some from the triage list.'
-              : 'No jobs yet. Click “Pull jobs now” (after Adzuna is configured) or add one manually.'}
+              : 'No jobs yet. Pull from Adzuna, open LinkedIn, or import a listing.'}
           </div>
         )}
         {typedJobs.map((job) => (
