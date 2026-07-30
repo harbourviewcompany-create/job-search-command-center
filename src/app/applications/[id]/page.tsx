@@ -4,6 +4,7 @@ import { formatDate } from '@/lib/utils'
 import { ApplicationDetailActions } from '@/components/ApplicationDetailActions'
 import { NotesForm } from '@/components/NotesForm'
 import { GeneratePackageButton } from '@/components/GeneratePackageButton'
+import { OutreachPanel } from '@/components/OutreachPanel'
 import Link from 'next/link'
 import { ArrowLeft, ExternalLink } from 'lucide-react'
 
@@ -27,6 +28,33 @@ export default async function ApplicationDetailPage({
 
   const job = app.jobs as any
   const hasPackage = Boolean(app.resume_version_id || app.cover_note)
+
+  let storedResume: string | null = null
+  if (app.resume_version_id) {
+    const { data: version } = await supabase
+      .from('resume_versions')
+      .select('content')
+      .eq('id', app.resume_version_id)
+      .maybeSingle()
+    storedResume = version?.content ?? null
+  }
+
+  const companyId = job.company_id as string | null
+  const { data: contacts } = companyId
+    ? await supabase
+        .from('contacts')
+        .select('id, name, title')
+        .eq('company_id', companyId)
+        .order('created_at', { ascending: false })
+        .limit(20)
+    : { data: [] as { id: string; name: string; title: string | null }[] }
+
+  const { data: outreach } = await supabase
+    .from('outreach_messages')
+    .select('id, type, draft_body, status, sent_at, created_at')
+    .eq('application_id', id)
+    .order('created_at', { ascending: false })
+    .limit(10)
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -94,6 +122,7 @@ export default async function ApplicationDetailPage({
           <ApplicationDetailActions
             applicationId={app.id}
             currentStatus={app.status}
+            hasPackage={hasPackage}
           />
         </div>
       </div>
@@ -101,8 +130,11 @@ export default async function ApplicationDetailPage({
       <section className="card p-6">
         <h2 className="font-medium">Tailored package</h2>
         <p className="mt-1 text-sm text-slate-500">
-          One click builds a resume and cover note weighted to this job. Copy and
-          submit via the listing — then mark Applied.
+          One click builds a resume and cover note weighted to this job. Review
+          before marking Applied (required).
+          {process.env.ANTHROPIC_API_KEY
+            ? ' AI polish is enabled.'
+            : ' Using fast keyword tailoring (set ANTHROPIC_API_KEY for LLM polish).'}
         </p>
         <div className="mt-4">
           <GeneratePackageButton
@@ -110,11 +142,48 @@ export default async function ApplicationDetailPage({
             hasPackage={hasPackage}
           />
         </div>
-        {app.cover_note && !hasPackage && (
-          <pre className="mt-4 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs">
-            {app.cover_note}
-          </pre>
+        {!hasPackage && (
+          <p className="mt-3 text-xs text-amber-700">
+            Generate a package before you can mark this application as Applied.
+          </p>
         )}
+        {(storedResume || app.cover_note) && (
+          <div className="mt-4 space-y-3">
+            {app.cover_note && (
+              <div>
+                <h3 className="text-sm font-medium">Saved cover note</h3>
+                <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs">
+                  {app.cover_note}
+                </pre>
+              </div>
+            )}
+            {storedResume && (
+              <div>
+                <h3 className="text-sm font-medium">Saved resume</h3>
+                <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs">
+                  {storedResume}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="card p-6">
+        <h2 className="font-medium">Outreach</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Draft LinkedIn/email messages. Copy and send yourself — nothing is
+          auto-sent. Log contacts on the Contacts page first for personalization.
+        </p>
+        <div className="mt-4">
+          <OutreachPanel
+            applicationId={app.id}
+            companyName={job.companies?.name ?? null}
+            jobTitle={job.title}
+            contacts={contacts ?? []}
+            messages={outreach ?? []}
+          />
+        </div>
       </section>
 
       {job.description && (

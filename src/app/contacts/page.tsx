@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { formatDate } from '@/lib/utils'
+import { AddContactForm } from '@/components/AddContactForm'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,10 +17,12 @@ export default async function ContactsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Contacts</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Decision-makers and recruiters discovered across companies. Apollo
-          lookup lands in Phase 3; for now this is a growing directory.
+          Decision-makers and recruiters. Add manually, or use Apollo lookup when
+          APOLLO_API_KEY is configured. Draft outreach from any application.
         </p>
       </div>
+
+      <AddContactForm />
 
       <div className="card overflow-hidden">
         <table className="w-full text-left text-sm">
@@ -29,21 +32,34 @@ export default async function ContactsPage() {
               <th className="px-5 py-3 font-medium">Title</th>
               <th className="px-5 py-3 font-medium">Company</th>
               <th className="px-5 py-3 font-medium">Email</th>
+              <th className="px-5 py-3 font-medium">Source</th>
               <th className="px-5 py-3 font-medium">Added</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {(contacts ?? []).length === 0 && (
               <tr>
-                <td colSpan={5} className="px-5 py-12 text-center text-slate-400">
-                  No contacts yet. They will appear here after Phase 3 contact
-                  research or manual entry.
+                <td colSpan={6} className="px-5 py-12 text-center text-slate-400">
+                  No contacts yet. Add one above or import via Apollo.
                 </td>
               </tr>
             )}
             {(contacts ?? []).map((c: any) => (
               <tr key={c.id} className="hover:bg-slate-50/50">
-                <td className="px-5 py-3 font-medium">{c.name}</td>
+                <td className="px-5 py-3 font-medium">
+                  {c.linkedin_url ? (
+                    <a
+                      href={c.linkedin_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-brand-600 hover:underline"
+                    >
+                      {c.name}
+                    </a>
+                  ) : (
+                    c.name
+                  )}
+                </td>
                 <td className="px-5 py-3 text-slate-600">{c.title ?? '—'}</td>
                 <td className="px-5 py-3 text-slate-600">
                   {c.companies?.name ?? '—'}
@@ -59,6 +75,9 @@ export default async function ContactsPage() {
                   ) : (
                     '—'
                   )}
+                </td>
+                <td className="px-5 py-3 text-slate-400 capitalize">
+                  {c.source ?? '—'}
                 </td>
                 <td className="px-5 py-3 text-slate-400">
                   {formatDate(c.created_at)}

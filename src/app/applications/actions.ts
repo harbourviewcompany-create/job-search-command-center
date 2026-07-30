@@ -10,6 +10,21 @@ export async function updateApplicationStatus(
 ) {
   const supabase = await createClient()
 
+  // Quality rule: do not mark Applied without a generated package
+  if (status === 'applied') {
+    const { data: app } = await supabase
+      .from('applications')
+      .select('resume_version_id, cover_note')
+      .eq('id', applicationId)
+      .single()
+
+    if (!app?.resume_version_id && !app?.cover_note) {
+      throw new Error(
+        'Generate and review a tailored package before marking Applied.'
+      )
+    }
+  }
+
   const updates: {
     status: ApplicationStatus
     applied_at?: string

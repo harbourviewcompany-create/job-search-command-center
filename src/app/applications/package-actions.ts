@@ -2,8 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { tailorPackage } from '@/lib/package'
-import { getProfile } from '@/lib/profile'
+import { tailorPackageWithAI } from '@/lib/package'
+import { getProfile, profileToResumeMarkdown } from '@/lib/profile'
 import type { JobWithCompany } from '@/types/database'
 
 export async function generatePackage(applicationId: string) {
@@ -19,16 +19,35 @@ export async function generatePackage(applicationId: string) {
 
   const job = app.jobs as unknown as JobWithCompany
   const profile = await getProfile(supabase)
-  const pkg = tailorPackage(
+
+  // Prefer settings.base_resume markdown when present
+  const { data: baseSetting } = await supabase
+    .from('settings')
+    .select('value')
+    .eq('key', 'base_resume')
+    .maybeSingle()
+
+  const storedBase =
+    typeof baseSetting?.value === 'string'
+      ? baseSetting.value
+      : typeof (baseSetting?.value as { markdown?: string } | null)?.markdown ===
+          'string'
+        ? (baseSetting?.value as { markdown: string }).markdown
+        : undefined
+
+  const baseResume = storedBase?.trim() || profileToResumeMarkdown(profile)
+
+  const pkg = await tailorPackageWithAI(
     {
       title: job.title,
       description: job.description,
+      location: job.location,
       companies: job.companies,
     },
-    profile
+    profile,
+    baseResume
   )
 
-  // Store resume version
   const { data: version, error: vErr } = await supabase
     .from('resume_versions')
     .insert({
@@ -58,5 +77,7 @@ export async function generatePackage(applicationId: string) {
     resumeMarkdown: pkg.resumeMarkdown,
     coverNote: pkg.coverNote,
     focusBullets: pkg.focusBullets,
+    matchNotes: pkg.matchNotes ?? [],
+    source: pkg.source,
   }
 }
