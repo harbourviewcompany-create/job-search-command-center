@@ -6,6 +6,8 @@ Indeed’s public Job Search / Publisher API is **no longer available** to gener
 
 **Adzuna** is an official free job-search API that aggregates listings across Canada (and other countries), including many postings that also appear on Indeed and other boards. That matches the product non-goal of no unofficial scraping.
 
+**RemoteOK** is a free public JSON API (`https://remoteok.com/api`) for remote roles. No API key. Enabled by default in `daily-job-pull`; set Edge secret `REMOTEOK_ENABLED=false` to disable.
+
 Optional: if you still have a legacy `INDEED_PUBLISHER_ID`, the Edge Function will also call the old Indeed endpoint; expect it to fail if the key is inactive.
 
 ---
@@ -25,6 +27,8 @@ In Supabase SQL Editor, run if not already applied:
 - `001_initial_schema.sql`
 - `002_opportunity_centre.sql`
 - `004_adzuna_source.sql`  ← allows `source = 'adzuna'`
+- `005_linkedin_source.sql`
+- `007_remoteok_source.sql`  ← allows `source = 'remoteok'`
 
 ---
 
@@ -41,6 +45,9 @@ npx supabase secrets set \
 
 # Optional legacy Indeed
 # npx supabase secrets set INDEED_PUBLISHER_ID=your_id
+
+# Optional: disable RemoteOK
+# npx supabase secrets set REMOTEOK_ENABLED=false
 
 npx supabase functions deploy daily-job-pull
 ```
@@ -97,10 +104,11 @@ Adzuna keys only need to live as **Edge Function secrets** (not necessarily in N
 
 1. Reads `settings.search_terms` (terms + locations)
 2. Queries Adzuna Canada (`/jobs/ca/search`) for up to 12 term×location combos
-3. Upserts companies by name
-4. Inserts new jobs with `source = adzuna`, deduped on `(source, external_id)`
-5. Scores each job 0–100 against Tyler’s BD/trade profile
-6. Skips jobs already Interested / Dismissed / Applied pipeline status
+3. Fetches RemoteOK once per run; keeps jobs matching search terms (cap 40)
+4. Upserts companies by name
+5. Inserts new jobs with `source = adzuna | remoteok | indeed`, deduped on `(source, external_id)`
+6. Scores each job 0–100 against Tyler’s BD/trade profile
+7. Skips jobs already Interested / Dismissed / Applied pipeline status
 
 Tune terms anytime under **Settings** in the app.
 
@@ -111,7 +119,8 @@ Tune terms anytime under **Settings** in the app.
 | Symptom | Check |
 |--------|--------|
 | `providers.adzuna: false` | Function secrets not set |
+| `providers.remoteok: false` | `REMOTEOK_ENABLED=false` |
 | 0 inserted, no error | Terms too narrow or rate limit — widen locations in Settings |
-| Constraint error on source | Run `004_adzuna_source.sql` |
+| Constraint error on source | Run `004_adzuna_source.sql` / `007_remoteok_source.sql` |
 | Cron never fires | Vault secret names, pg_net enabled, cron.job row exists |
 | Manual pull 500 | `SUPABASE_SERVICE_ROLE_KEY` missing from Next env |

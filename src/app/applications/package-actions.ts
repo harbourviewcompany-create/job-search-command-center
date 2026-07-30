@@ -1,10 +1,13 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { tailorPackageWithAI } from '@/lib/package'
 import { getProfile, profileToResumeMarkdown } from '@/lib/profile'
+import { resumeMarkdownToDocxBuffer, resumeFilename } from '@/lib/docx'
 import type { JobWithCompany } from '@/types/database'
+
+const RESUME_BUCKET = 'resumes'
 
 export async function generatePackage(applicationId: string) {
   const supabase = await createClient()
@@ -20,7 +23,6 @@ export async function generatePackage(applicationId: string) {
   const job = app.jobs as unknown as JobWithCompany
   const profile = await getProfile(supabase)
 
-  // Prefer settings.base_resume markdown when present
   const { data: baseSetting } = await supabase
     .from('settings')
     .select('value')
@@ -48,13 +50,57 @@ export async function generatePackage(applicationId: string) {
     baseResume
   )
 
+  let docxUrl: string | null = null
+  try {
+    const buffer = await resumeMarkdownToDocxBuffer(pkg.resumeMarkdown, {
+      title: `${profile.name} — ${job.title}`,
+    })
+    const filename = resumeFilename(job.companies?.name, job.title)
+    const path = `${applicationId}/${Date.now()}-${filename}`
+
+    // Prefer service role for Storage writes when available
+    const uploader =
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+        ? createServiceClient()
+        : supabase
+
+    const { error: upErr } = await uploader.storage
+      .from(RESUME_BUCKET)
+      .upload(path, buffer, {
+        contentType:
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        upsert: true,
+      })
+
+    if (!upErr) {
+      const { data: pub } = uploader.storage
+        .from(RESUME_BUCKET)
+        .getPublicUrl(path)
+      docxUrl = pub?.publicUrl ?? null
+
+      // If bucket is private, create a signed URL instead
+      if (!docxUrl || docxUrl.includes('undefined')) {
+        const { data: signed } = await uploader.storage
+          .from(RESUME_BUCKET)
+          .createSignedUrl(path, 60 * 60 * 24 * 30) // 30 days
+        docxUrl = signed?.signedUrl ?? null
+      }
+    } else {
+      console.error('docx upload failed', upErr.message)
+    }
+  } catch (err) {
+    // Package still succeeds without docx
+    console.error('docx generation failed', err)
+  }
+
   const { data: version, error: vErr } = await supabase
     .from('resume_versions')
     .insert({
       application_id: applicationId,
       content: pkg.resumeMarkdown,
+      docx_url: docxUrl,
     })
-    .select('id')
+    .select('id, docx_url')
     .single()
 
   if (vErr) throw new Error(vErr.message)
@@ -79,5 +125,6 @@ export async function generatePackage(applicationId: string) {
     focusBullets: pkg.focusBullets,
     matchNotes: pkg.matchNotes ?? [],
     source: pkg.source,
+    docxUrl: version.docx_url ?? docxUrl,
   }
 }

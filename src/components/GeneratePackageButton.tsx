@@ -2,21 +2,30 @@
 
 import { useState, useTransition } from 'react'
 import { generatePackage } from '@/app/applications/package-actions'
-import { FileText, Copy, Check } from 'lucide-react'
+import { FileText, Copy, Check, Download } from 'lucide-react'
 
 interface Props {
   applicationId: string
   hasPackage: boolean
+  initialDocxUrl?: string | null
 }
 
-export function GeneratePackageButton({ applicationId, hasPackage }: Props) {
+export function GeneratePackageButton({
+  applicationId,
+  hasPackage,
+  initialDocxUrl = null,
+}: Props) {
   const [pending, startTransition] = useTransition()
   const [result, setResult] = useState<{
     resumeMarkdown: string
     coverNote: string
+    docxUrl?: string | null
+    source?: string
   } | null>(null)
   const [copied, setCopied] = useState<'resume' | 'cover' | null>(null)
   const [copyError, setCopyError] = useState<string | null>(null)
+
+  const docxUrl = result?.docxUrl ?? initialDocxUrl
 
   function handleGenerate() {
     startTransition(async () => {
@@ -38,21 +47,39 @@ export function GeneratePackageButton({ applicationId, hasPackage }: Props) {
 
   return (
     <div className="space-y-4">
-      <button
-        type="button"
-        onClick={handleGenerate}
-        disabled={pending}
-        className="btn-primary"
-      >
-        <FileText className="h-4 w-4" />
-        {pending
-          ? 'Generating…'
-          : hasPackage || result
-            ? 'Regenerate tailored package'
-            : 'Generate tailored package'}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={pending}
+          className="btn-primary"
+        >
+          <FileText className="h-4 w-4" />
+          {pending
+            ? 'Generating…'
+            : hasPackage || result
+              ? 'Regenerate tailored package'
+              : 'Generate tailored package'}
+        </button>
+        {docxUrl && (
+          <a
+            href={docxUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-secondary"
+          >
+            <Download className="h-4 w-4" /> Download .docx
+          </a>
+        )}
+      </div>
 
       {copyError && <p className="text-xs text-red-600">{copyError}</p>}
+      {result?.source && (
+        <p className="text-xs text-slate-500">
+          Generated via {result.source}
+          {result.docxUrl ? ' · .docx uploaded' : ''}
+        </p>
+      )}
 
       {result && (
         <div className="space-y-4 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
@@ -103,8 +130,8 @@ export function GeneratePackageButton({ applicationId, hasPackage }: Props) {
             </pre>
           </div>
           <p className="text-xs text-slate-500">
-            Copy into your doc or LinkedIn Easy Apply. Mark Applied on the
-            pipeline when you submit.
+            Copy into your doc or LinkedIn Easy Apply, or download the .docx.
+            Mark Applied when you submit.
           </p>
         </div>
       )}

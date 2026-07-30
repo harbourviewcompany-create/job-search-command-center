@@ -3,7 +3,8 @@
  *
  * Sources:
  * 1. Adzuna (primary, official free API) — country `ca` for Canada
- * 2. Indeed Publisher API (optional legacy) — only if INDEED_PUBLISHER_ID is set
+ * 2. RemoteOK (free public API, remote roles)
+ * 3. Indeed Publisher API (optional legacy) — only if INDEED_PUBLISHER_ID is set
  *
  * Reads search_terms from settings, upserts jobs, scores against profile.
  * Schedule via pg_cron (see migrations/003_schedule_job_pull.sql).
@@ -22,7 +23,7 @@ interface SearchTerms {
 }
 
 interface NormalizedJob {
-  source: 'indeed' | 'adzuna'
+  source: 'indeed' | 'adzuna' | 'remoteok'
   external_id: string
   title: string
   company_name: string
@@ -126,7 +127,6 @@ function scoreJob(job: {
     reasons.push(`Industry: ${industryHits[0]}`)
   }
 
-  // Unknown location (loc.length === 0) is neutral, not a match
   const loc = normalize(job.location ?? '')
   const remoteMatch = job.remote || loc.includes('remote')
   const locationMatch = PROFILE.locations.some((l) => loc.includes(l))
@@ -138,9 +138,6 @@ function scoreJob(job: {
     reasons.push('Location may not match')
   }
 
-  // Multi-word phrases are specific enough to check anywhere; single generic words
-  // (b2b, revenue) only count in the title to avoid false positives from incidental
-  // mentions in a job description.
   const bdPhraseSignals = [
     'business development',
     'account manager',
@@ -170,7 +167,6 @@ async function fetchAdzuna(
   appId: string,
   appKey: string
 ): Promise<NormalizedJob[]> {
-  // Canada country code; results_per_page max typically 50
   const params = new URLSearchParams({
     app_id: appId,
     app_key: appKey,
@@ -191,9 +187,7 @@ async function fetchAdzuna(
   return results.map((r: any): NormalizedJob => {
     const desc = (r.description ?? '').replace(/<[^>]+>/g, ' ').slice(0, 4000)
     const loc = r.location?.display_name ?? location
-    const remote =
-      /remote|work from home|wfh/i.test(`${r.title} ${desc} ${loc}`) ||
-      false
+    const remote = /remote|work from home|wfh/i.test(`${r.title} ${desc} ${loc}`)
     return {
       source: 'adzuna',
       external_id: String(r.id),
@@ -208,7 +202,6 @@ async function fetchAdzuna(
   })
 }
 
-/** Legacy Indeed Publisher API — often unavailable; only used if key present */
 async function fetchIndeed(
   term: string,
   location: string,
@@ -251,6 +244,79 @@ async function fetchIndeed(
   }
 }
 
+/**
+ * RemoteOK free public API — https://remoteok.com/api
+ * No auth. Filter by search terms against title/description/tags.
+ */
+async function fetchRemoteOK(terms: string[]): Promise<NormalizedJob[]> {
+  try {
+    const res = await fetch('https://remoteok.com/api', {
+      headers: {
+        'User-Agent': 'JobSearchCommandCenter/1.0 (personal; Tyler Campbell)',
+      },
+    })
+    if (!res.ok) {
+      console.error('RemoteOK error', res.status, await res.text())
+      return []
+    }
+    const data = await res.json()
+    const jobs = (Array.isArray(data) ? data : []).filter(
+      (j: any) => j && j.id && j.position
+    )
+
+    const termList = terms.map((t) => t.toLowerCase()).filter(Boolean)
+    const normalized: NormalizedJob[] = []
+
+    for (const j of jobs) {
+      const title = String(j.position || 'Untitled')
+      const descRaw = j.description ? String(j.description) : ''
+      const desc = descRaw.replace(/<[^>]+>/g, ' ').slice(0, 4000)
+      const tags = Array.isArray(j.tags)
+        ? j.tags.map((t: unknown) => String(t).toLowerCase())
+        : []
+      const blob = `${title} ${desc} ${tags.join(' ')}`.toLowerCase()
+
+      // Keep if any search term overlaps, or if BD/sales signal present when terms are set
+      const termHit =
+        termList.length === 0 ||
+        termList.some((t) => {
+          const words = t.split(/\s+/).filter((w) => w.length > 2)
+          return words.every((w) => blob.includes(w)) || blob.includes(t)
+        })
+
+      if (!termHit) continue
+
+      let posted_at: string | null = null
+      if (j.date) {
+        const n = Number(j.date)
+        if (!Number.isNaN(n) && n > 1e9) {
+          posted_at = new Date(n * 1000).toISOString().slice(0, 10)
+        } else {
+          posted_at = String(j.date).slice(0, 10)
+        }
+      }
+
+      normalized.push({
+        source: 'remoteok',
+        external_id: String(j.id),
+        title,
+        company_name: String(j.company || 'Unknown'),
+        location: j.location ? String(j.location) : 'Remote',
+        remote: true,
+        description: desc || null,
+        url: j.url || j.apply_url ? String(j.url || j.apply_url) : null,
+        posted_at,
+      })
+    }
+
+    // Cap remoteok volume per run
+    return normalized.slice(0, 40)
+  } catch (e) {
+    console.error('RemoteOK fetch failed', e)
+    return []
+  }
+}
+
 // --- Main ---
 
 Deno.serve(async (req) => {
@@ -264,10 +330,11 @@ Deno.serve(async (req) => {
     const adzunaAppId = Deno.env.get('ADZUNA_APP_ID')
     const adzunaAppKey = Deno.env.get('ADZUNA_APP_KEY')
     const indeedPublisher = Deno.env.get('INDEED_PUBLISHER_ID')
+    // RemoteOK is always on unless explicitly disabled
+    const remoteOkEnabled = Deno.env.get('REMOTEOK_ENABLED') !== 'false'
 
     const supabase = createClient(supabaseUrl, serviceKey)
 
-    // Load search terms
     const { data: setting } = await supabase
       .from('settings')
       .select('value')
@@ -282,7 +349,6 @@ Deno.serve(async (req) => {
     const terms = search.terms?.length ? search.terms : ['business development']
     const locations = search.locations?.length ? search.locations : ['Canada']
 
-    // Cap combinations to stay within free-tier rate limits
     const maxCombos = 12
     const combos: { term: string; location: string }[] = []
     for (const term of terms.slice(0, 6)) {
@@ -299,7 +365,7 @@ Deno.serve(async (req) => {
       if (adzunaAppId && adzunaAppKey) {
         const jobs = await fetchAdzuna(term, location, adzunaAppId, adzunaAppKey)
         collected.push(...jobs)
-        await delay(300) // be kind to free tier
+        await delay(300)
       }
       if (indeedPublisher) {
         const jobs = await fetchIndeed(term, location, indeedPublisher)
@@ -308,7 +374,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Dedupe within this run
+    let remoteOkCount = 0
+    if (remoteOkEnabled) {
+      const remoteJobs = await fetchRemoteOK(terms)
+      remoteOkCount = remoteJobs.length
+      collected.push(...remoteJobs)
+    }
+
     const seen = new Set<string>()
     const unique = collected.filter((j) => {
       const key = `${j.source}:${j.external_id}`
@@ -322,7 +394,6 @@ Deno.serve(async (req) => {
     let skipped = 0
 
     for (const job of unique) {
-      // Company upsert by name
       let companyId: string | null = null
       const { data: existingCo } = await supabase
         .from('companies')
@@ -346,7 +417,6 @@ Deno.serve(async (req) => {
 
       const fit = scoreJob(job)
 
-      // Upsert on (source, external_id) — only insert if new; refresh score on existing found jobs
       const { data: existing } = await supabase
         .from('jobs')
         .select('id, status')
@@ -387,7 +457,6 @@ Deno.serve(async (req) => {
       })
 
       if (error) {
-        // Unique violation race
         if (error.code === '23505') skipped++
         else console.error('Insert error', error)
       } else {
@@ -403,9 +472,11 @@ Deno.serve(async (req) => {
       inserted,
       updated,
       skipped,
+      remoteok_matched: remoteOkCount,
       providers: {
         adzuna: Boolean(adzunaAppId && adzunaAppKey),
         indeed: Boolean(indeedPublisher),
+        remoteok: remoteOkEnabled,
       },
     }
 
