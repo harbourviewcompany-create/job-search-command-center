@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { scoreJobAgainstProfile } from '@/lib/scoring'
-import { DEFAULT_PROFILE } from '@/lib/profile'
+import { getProfile } from '@/lib/profile'
 import type { JobStatus } from '@/types/database'
 
 export async function updateJobStatus(jobId: string, status: JobStatus) {
@@ -24,10 +24,14 @@ export async function updateJobStatus(jobId: string, status: JobStatus) {
       .maybeSingle()
 
     if (!existing) {
-      await supabase.from('applications').insert({
+      const { error: insertError } = await supabase.from('applications').insert({
         job_id: jobId,
         status: 'interested',
       })
+      // Ignore a unique-violation race (another call already created the application row).
+      if (insertError && insertError.code !== '23505') {
+        throw new Error(insertError.message)
+      }
     }
   }
 
@@ -69,10 +73,8 @@ export async function addManualJob(formData: FormData) {
     companyId = created.id
   }
 
-  const fit = scoreJobAgainstProfile(
-    { title, description, location, remote },
-    DEFAULT_PROFILE
-  )
+  const profile = await getProfile(supabase)
+  const fit = scoreJobAgainstProfile({ title, description, location, remote }, profile)
 
   const { error } = await supabase.from('jobs').insert({
     source: 'manual',
@@ -95,18 +97,26 @@ export async function addManualJob(formData: FormData) {
 
 export async function rescoreAllJobs() {
   const supabase = await createClient()
+  const profile = await getProfile(supabase)
 
   const { data: jobs } = await supabase
     .from('jobs')
     .select('id, title, description, location, remote')
     .in('status', ['found', 'interested'])
 
-  for (const job of jobs ?? []) {
-    const fit = scoreJobAgainstProfile(job, DEFAULT_PROFILE)
-    await supabase
-      .from('jobs')
-      .update({ fit_score: fit.score, fit_reasons: fit.reasons })
-      .eq('id', job.id)
+  const results = await Promise.all(
+    (jobs ?? []).map((job) => {
+      const fit = scoreJobAgainstProfile(job, profile)
+      return supabase
+        .from('jobs')
+        .update({ fit_score: fit.score, fit_reasons: fit.reasons })
+        .eq('id', job.id)
+    })
+  )
+
+  const failures = results.filter((r) => r.error)
+  if (failures.length > 0) {
+    console.error(`rescoreAllJobs: ${failures.length} update(s) failed`, failures[0].error)
   }
 
   revalidatePath('/jobs')

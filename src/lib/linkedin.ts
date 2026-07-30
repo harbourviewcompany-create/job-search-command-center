@@ -64,12 +64,9 @@ export function parseLinkedInJobId(url: string): string | null {
     if (view) return view[1]
 
     // https://www.linkedin.com/jobs/collections/recommended/?currentJobId=1234567890
+    // https://www.linkedin.com/jobs/search/?currentJobId=1234567890
     const current = u.searchParams.get('currentJobId')
     if (current && /^\d+$/.test(current)) return current
-
-    // https://www.linkedin.com/jobs/search/?currentJobId=1234567890
-    const searchId = u.searchParams.get('currentJobId')
-    if (searchId && /^\d+$/.test(searchId)) return searchId
 
     return null
   } catch {

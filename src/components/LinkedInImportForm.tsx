@@ -1,19 +1,25 @@
 'use client'
 
-import { useRef, useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import { importLinkedInJob } from '@/app/jobs/linkedin-actions'
 import { Linkedin } from 'lucide-react'
 
 export function LinkedInImportForm() {
   const formRef = useRef<HTMLFormElement>(null)
   const [pending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const formData = new FormData(e.currentTarget)
     startTransition(async () => {
-      await importLinkedInJob(formData)
-      formRef.current?.reset()
+      try {
+        await importLinkedInJob(formData)
+        setError(null)
+        formRef.current?.reset()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Import failed')
+      }
     })
   }
 
@@ -85,6 +91,7 @@ export function LinkedInImportForm() {
           placeholder="Paste key bullets from the LinkedIn posting…"
         />
       </div>
+      {error && <p className="text-xs text-red-600">{error}</p>}
       <div className="flex justify-end">
         <button type="submit" disabled={pending} className="btn-primary">
           {pending ? 'Importing…' : 'Import & score'}

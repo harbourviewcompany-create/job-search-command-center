@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { formatDate } from '@/lib/utils'
+import { daysSince } from '@/lib/utils'
+import type { Opportunity } from '@/types/database'
 import Link from 'next/link'
 import {
   Briefcase,
@@ -8,6 +9,7 @@ import {
   Zap,
   ArrowRight,
   DollarSign,
+  Bell,
 } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
@@ -22,6 +24,8 @@ export default async function DashboardPage() {
     { data: topJobs },
     { data: cashPlays },
     { data: needsPackage },
+    { data: appliedApps },
+    { data: followUpSetting },
   ] = await Promise.all([
     supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('status', 'found'),
     supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('status', 'interested'),
@@ -36,7 +40,7 @@ export default async function DashboardPage() {
       .from('opportunities')
       .select('*')
       .eq('status', 'active')
-      .order('fit_score', { ascending: false })
+      .order('fit_score', { ascending: false, nullsFirst: false })
       .limit(5),
     supabase
       .from('applications')
@@ -44,12 +48,29 @@ export default async function DashboardPage() {
       .eq('status', 'interested')
       .is('resume_version_id', null)
       .limit(5),
+    supabase
+      .from('applications')
+      .select('id, applied_at, jobs(title, companies(name))')
+      .eq('status', 'applied')
+      .not('applied_at', 'is', null)
+      .order('applied_at', { ascending: true })
+      .limit(50),
+    supabase.from('settings').select('value').eq('key', 'follow_up_offsets').maybeSingle(),
   ])
+
+  const followUp1Days =
+    (followUpSetting?.value as { follow_up_1_days?: number } | null)?.follow_up_1_days ?? 5
+
+  const dueFollowUps = (appliedApps ?? []).filter((app: any) => {
+    const days = daysSince(app.applied_at)
+    return days !== null && days >= followUp1Days
+  })
 
   const stats = [
     { label: 'To triage', value: foundCount ?? 0, icon: Briefcase, color: 'text-blue-600 bg-blue-50' },
     { label: 'Interested', value: interestedCount ?? 0, icon: CheckCircle2, color: 'text-emerald-600 bg-emerald-50' },
     { label: 'Applied', value: appliedCount ?? 0, icon: Clock, color: 'text-amber-600 bg-amber-50' },
+    { label: 'Follow-ups due', value: dueFollowUps.length, icon: Bell, color: 'text-rose-600 bg-rose-50' },
     { label: 'Cash plays', value: cashPlays?.length ?? 0, icon: DollarSign, color: 'text-violet-600 bg-violet-50' },
   ]
 
@@ -62,7 +83,7 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         {stats.map(({ label, value, icon: Icon, color }) => (
           <div key={label} className="card p-5">
             <div className="flex items-center justify-between">
@@ -131,6 +152,36 @@ export default async function DashboardPage() {
         </ol>
       </section>
 
+      {dueFollowUps.length > 0 && (
+        <section className="card">
+          <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
+            <Bell className="h-4 w-4 text-rose-600" />
+            <h2 className="font-medium">Follow-ups due</h2>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {dueFollowUps.map((app: any) => {
+              const days = daysSince(app.applied_at)
+              return (
+                <li key={app.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {app.jobs?.title ?? 'Application'}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {app.jobs?.companies?.name ?? ''}
+                      {days !== null ? ` · Applied ${days}d ago` : ''}
+                    </p>
+                  </div>
+                  <Link href={`/applications/${app.id}`} className="btn-secondary shrink-0 text-xs">
+                    Follow up
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="card">
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
@@ -183,7 +234,7 @@ export default async function DashboardPage() {
                 Run migration 002_opportunity_centre.sql to seed commercial plays.
               </li>
             )}
-            {(cashPlays ?? []).map((op: any) => (
+            {((cashPlays ?? []) as Opportunity[]).map((op) => (
               <li key={op.id} className="px-5 py-3.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">

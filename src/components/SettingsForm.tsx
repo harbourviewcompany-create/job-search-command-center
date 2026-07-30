@@ -60,7 +60,7 @@ export function SettingsForm({
       <section className="card space-y-4 p-6">
         <h2 className="font-medium">Follow-up cadence</h2>
         <p className="text-sm text-slate-500">
-          Days after applied_at to surface follow-up tasks (Phase 4).
+          Days after applying before a follow-up shows as due on the dashboard.
         </p>
         <div className="grid grid-cols-2 gap-4">
           <div>

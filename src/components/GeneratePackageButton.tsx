@@ -16,6 +16,7 @@ export function GeneratePackageButton({ applicationId, hasPackage }: Props) {
     coverNote: string
   } | null>(null)
   const [copied, setCopied] = useState<'resume' | 'cover' | null>(null)
+  const [copyError, setCopyError] = useState<string | null>(null)
 
   function handleGenerate() {
     startTransition(async () => {
@@ -25,9 +26,14 @@ export function GeneratePackageButton({ applicationId, hasPackage }: Props) {
   }
 
   async function copy(text: string, which: 'resume' | 'cover') {
-    await navigator.clipboard.writeText(text)
-    setCopied(which)
-    setTimeout(() => setCopied(null), 2000)
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyError(null)
+      setCopied(which)
+      setTimeout(() => setCopied(null), 2000)
+    } catch {
+      setCopyError('Copy failed — select and copy the text manually.')
+    }
   }
 
   return (
@@ -45,6 +51,8 @@ export function GeneratePackageButton({ applicationId, hasPackage }: Props) {
             ? 'Regenerate tailored package'
             : 'Generate tailored package'}
       </button>
+
+      {copyError && <p className="text-xs text-red-600">{copyError}</p>}
 
       {result && (
         <div className="space-y-4 rounded-xl border border-brand-100 bg-brand-50/40 p-4">

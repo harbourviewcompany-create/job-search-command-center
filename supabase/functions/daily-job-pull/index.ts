@@ -22,7 +22,7 @@ interface SearchTerms {
 }
 
 interface NormalizedJob {
-  source: 'indeed' | 'ziprecruiter' | 'manual' | 'adzuna'
+  source: 'indeed' | 'adzuna'
   external_id: string
   title: string
   company_name: string
@@ -99,9 +99,10 @@ function scoreJob(job: {
   let score = 20
 
   const titleNorm = normalize(job.title)
-  const titleHit = PROFILE.target_titles.find(
-    (t) => titleNorm.includes(t) || t.split(' ').every((w) => titleNorm.includes(w))
-  )
+  const titleHit = PROFILE.target_titles.find((t) => {
+    const words = t.split(' ').filter((w) => w.length > 3)
+    return titleNorm.includes(t) || (words.length > 0 && words.every((w) => titleNorm.includes(w)))
+  })
   if (titleHit) {
     score += 35
     reasons.push(`Title aligns with ${titleHit}`)
@@ -125,31 +126,33 @@ function scoreJob(job: {
     reasons.push(`Industry: ${industryHits[0]}`)
   }
 
+  // Unknown location (loc.length === 0) is neutral, not a match
   const loc = normalize(job.location ?? '')
-  const locOk =
-    job.remote ||
-    loc.includes('remote') ||
-    PROFILE.locations.some((l) => loc.includes(l)) ||
-    loc.length === 0
-  if (locOk) {
+  const remoteMatch = job.remote || loc.includes('remote')
+  const locationMatch = PROFILE.locations.some((l) => loc.includes(l))
+  if (remoteMatch || locationMatch) {
     score += 10
-    if (job.remote || loc.includes('remote')) reasons.push('Remote-friendly')
-    else if (loc.length > 0) reasons.push('Location match')
-  } else {
+    reasons.push(remoteMatch ? 'Remote-friendly' : 'Location match')
+  } else if (loc.length > 0) {
     score -= 15
     reasons.push('Location may not match')
   }
 
-  const bdSignals = [
+  // Multi-word phrases are specific enough to check anywhere; single generic words
+  // (b2b, revenue) only count in the title to avoid false positives from incidental
+  // mentions in a job description.
+  const bdPhraseSignals = [
     'business development',
     'account manager',
     'account executive',
     'partnership',
-    'b2b',
     'sales manager',
-    'revenue',
   ]
-  if (bdSignals.some((s) => blob.includes(s))) {
+  const bdGenericTitleSignals = ['b2b', 'revenue']
+  const bdSignalHit =
+    bdPhraseSignals.some((s) => blob.includes(s)) ||
+    bdGenericTitleSignals.some((s) => titleNorm.includes(s))
+  if (bdSignalHit) {
     score += 8
     if (!reasons.some((r) => r.startsWith('Title'))) reasons.push('BD/sales role signal')
   }
@@ -330,11 +333,14 @@ Deno.serve(async (req) => {
       if (existingCo) {
         companyId = existingCo.id
       } else {
-        const { data: created } = await supabase
+        const { data: created, error: companyError } = await supabase
           .from('companies')
           .insert({ name: job.company_name })
           .select('id')
           .single()
+        if (companyError) {
+          console.error('Company insert error', job.company_name, companyError)
+        }
         companyId = created?.id ?? null
       }
 

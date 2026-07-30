@@ -29,7 +29,8 @@ export function scoreJobAgainstProfile(
   const titleNorm = normalize(job.title)
   const titleHits = profile.target_titles.filter((t) => {
     const tn = normalize(t)
-    return titleNorm.includes(tn) || tn.split(' ').every((w) => titleNorm.includes(w))
+    const words = tn.split(' ').filter((w) => w.length > 3)
+    return titleNorm.includes(tn) || (words.length > 0 && words.every((w) => titleNorm.includes(w)))
   })
   if (titleHits.length > 0) {
     score += 35
@@ -67,24 +68,27 @@ export function scoreJobAgainstProfile(
     reasons.push(`Industry: ${industryHits[0]}`)
   }
 
-  // Location / remote
+  // Location / remote — unknown location (loc.length === 0) is neutral, not a match
   const loc = normalize(job.location ?? '')
-  const locOk =
-    job.remote ||
-    profile.constraints.remote_ok && (loc.includes('remote') || loc.length === 0) ||
-    profile.constraints.locations.some((l) => loc.includes(normalize(l)))
-  if (locOk) {
+  const remoteMatch = job.remote || (profile.constraints.remote_ok && loc.includes('remote'))
+  const locationMatch = profile.constraints.locations.some((l) => loc.includes(normalize(l)))
+  if (remoteMatch || locationMatch) {
     score += 10
-    if (job.remote || loc.includes('remote')) reasons.push('Remote-friendly')
-    else reasons.push('Location match')
+    reasons.push(remoteMatch ? 'Remote-friendly' : 'Location match')
   } else if (loc.length > 0) {
     score -= 15
     reasons.push('Location may not match')
   }
 
-  // BD / sales signal boost (core strength)
-  const bdSignals = ['business development', 'account manager', 'account executive', 'partnership', 'b2b', 'sales manager', 'revenue', 'client success']
-  if (bdSignals.some((s) => blob.includes(s))) {
+  // BD / sales signal boost (core strength). Multi-word phrases are specific enough to
+  // check anywhere; single generic words (b2b, revenue) only count in the title, since
+  // they're prone to false positives from incidental mentions in a job description.
+  const bdPhraseSignals = ['business development', 'account manager', 'account executive', 'partnership', 'sales manager', 'client success']
+  const bdGenericTitleSignals = ['b2b', 'revenue']
+  const bdSignalHit =
+    bdPhraseSignals.some((s) => blob.includes(s)) ||
+    bdGenericTitleSignals.some((s) => titleNorm.includes(s))
+  if (bdSignalHit) {
     score += 8
     if (!reasons.some((r) => r.startsWith('Title'))) reasons.push('BD/sales role signal')
   }
@@ -93,9 +97,4 @@ export function scoreJobAgainstProfile(
   if (reasons.length === 0) reasons.push('Limited keyword overlap — review manually')
 
   return { score, reasons }
-}
-
-/** Rank jobs in place by fit_score descending */
-export function rankByFit<T extends { fit_score?: number | null }>(items: T[]): T[] {
-  return [...items].sort((a, b) => (b.fit_score ?? 0) - (a.fit_score ?? 0))
 }

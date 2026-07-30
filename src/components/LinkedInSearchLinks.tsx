@@ -22,8 +22,8 @@ export function LinkedInSearchLinks({ terms, locations }: Props) {
         Review on LinkedIn, then import roles worth pursuing below.
       </p>
       <ul className="flex flex-wrap gap-2">
-        {links.map((link) => (
-          <li key={link.url}>
+        {links.map((link, i) => (
+          <li key={`${link.url}-${i}`}>
             <a
               href={link.url}
               target="_blank"

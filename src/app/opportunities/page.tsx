@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import type { Opportunity } from '@/types/database'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,7 +10,7 @@ export default async function OpportunitiesPage() {
     .from('opportunities')
     .select('*')
     .neq('status', 'dismissed')
-    .order('fit_score', { ascending: false })
+    .order('fit_score', { ascending: false, nullsFirst: false })
 
   return (
     <div className="space-y-6">
@@ -29,7 +30,7 @@ export default async function OpportunitiesPage() {
             in the Supabase SQL editor to seed plays built from your profile.
           </div>
         )}
-        {(ops ?? []).map((op: any) => (
+        {((ops ?? []) as Opportunity[]).map((op) => (
           <article key={op.id} className="card p-6">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
