@@ -16,7 +16,13 @@ export type ApplicationStatus =
   | 'closed'
 export type OutreachType = 'initial' | 'follow_up_1' | 'follow_up_2'
 export type OutreachStatus = 'drafted' | 'sent' | 'skipped'
-export type JobSource = 'indeed' | 'ziprecruiter' | 'manual' | 'adzuna' | 'linkedin'
+export type JobSource =
+  | 'indeed'
+  | 'ziprecruiter'
+  | 'manual'
+  | 'adzuna'
+  | 'linkedin'
+  | 'remoteok'
 export type OpportunityType =
   | 'job_lead'
   | 'contract'
