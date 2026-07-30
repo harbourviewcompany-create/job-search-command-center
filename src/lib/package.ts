@@ -165,9 +165,7 @@ OUTPUT FORMAT (strict):
       data?.content?.map((b: { text?: string }) => b.text ?? '').join('') ?? ''
 
     const resumeMarkdown =
-      extractSection(text, 'RESUME') ??
-      extractSection(text, 'resume') ??
-      ''
+      extractSection(text, 'RESUME') ?? extractSection(text, 'resume') ?? ''
     const coverNote =
       extractSection(text, 'COVER') ?? extractSection(text, 'cover') ?? ''
     const matchBlock =
@@ -207,7 +205,9 @@ function extractSection(text: string, name: string): string | null {
     `---${name}---\\s*([\\s\\S]*?)(?=---[A-Z_]+---|$)`,
     'i'
   )
-  const m = text.match(re)
+  // Fix: use real regex without over-escaping
+  const re2 = new RegExp('---' + name + '---\\s*([\\s\\S]*?)(?=---[A-Z_]+---|$)', 'i')
+  const m = text.match(re2)
   return m ? m[1].trim() : null
 }
 
