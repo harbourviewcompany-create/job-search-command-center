@@ -30,13 +30,15 @@ export default async function ApplicationDetailPage({
   const hasPackage = Boolean(app.resume_version_id || app.cover_note)
 
   let storedResume: string | null = null
+  let storedDocxUrl: string | null = null
   if (app.resume_version_id) {
     const { data: version } = await supabase
       .from('resume_versions')
-      .select('content')
+      .select('content, docx_url')
       .eq('id', app.resume_version_id)
       .maybeSingle()
     storedResume = version?.content ?? null
+    storedDocxUrl = version?.docx_url ?? null
   }
 
   const companyId = job.company_id as string | null
@@ -130,8 +132,9 @@ export default async function ApplicationDetailPage({
       <section className="card p-6">
         <h2 className="font-medium">Tailored package</h2>
         <p className="mt-1 text-sm text-slate-500">
-          One click builds a resume and cover note weighted to this job. Review
-          before marking Applied (required).
+          One click builds a resume and cover note weighted to this job, plus a
+          downloadable .docx when Storage is configured. Review before marking
+          Applied (required).
           {process.env.ANTHROPIC_API_KEY
             ? ' AI polish is enabled.'
             : ' Using fast keyword tailoring (set ANTHROPIC_API_KEY for LLM polish).'}
@@ -140,6 +143,7 @@ export default async function ApplicationDetailPage({
           <GeneratePackageButton
             applicationId={app.id}
             hasPackage={hasPackage}
+            initialDocxUrl={storedDocxUrl}
           />
         </div>
         {!hasPackage && (
