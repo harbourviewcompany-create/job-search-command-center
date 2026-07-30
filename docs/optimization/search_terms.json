@@ -1,0 +1,46 @@
+{
+  "search_terms": {
+    "terms": [
+      "business development manager",
+      "account manager",
+      "key account manager",
+      "client partnerships manager",
+      "partnerships manager",
+      "strategic partnerships",
+      "market access",
+      "commercial development",
+      "b2b sales manager",
+      "talent acquisition manager",
+      "recruiting manager",
+      "international trade",
+      "export development"
+    ],
+    "locations": [
+      "Ottawa",
+      "Ontario",
+      "Remote",
+      "Canada",
+      "Work from home",
+      "Hybrid Ottawa"
+    ],
+    "remote_only_terms": [
+      "remote business development",
+      "remote account manager",
+      "remote partnerships manager",
+      "remote market access",
+      "remote client partnerships"
+    ],
+    "exclude_keywords": [
+      "junior",
+      "entry level",
+      "internship",
+      "student",
+      "unpaid"
+    ]
+  },
+  "follow_up_offsets": {
+    "follow_up_1_days": 5,
+    "follow_up_2_days": 12
+  },
+  "notes": "Primary daily pull should combine the main terms with Ottawa + Remote filters. Rotate remote_only_terms on alternate days for broader remote coverage."
+}
