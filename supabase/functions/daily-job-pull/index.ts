@@ -333,7 +333,10 @@ Deno.serve(async (req) => {
     // RemoteOK is always on unless explicitly disabled
     const remoteOkEnabled = Deno.env.get('REMOTEOK_ENABLED') !== 'false'
 
-    const supabase = createClient(supabaseUrl, serviceKey)
+    const supabase = createClient(supabaseUrl, serviceKey, {
+      db: { schema: 'job_search' },
+      auth: { persistSession: false },
+    })
 
     const { data: setting } = await supabase
       .from('settings')
