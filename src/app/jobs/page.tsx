@@ -5,7 +5,7 @@ import type { JobWithCompany } from '@/types/database'
 
 export const dynamic = 'force-dynamic'
 
-const PAGE_SIZE = 100
+const DEFAULT_PAGE_SIZE = 100
 
 interface JobsPageProps {
   searchParams: Promise<{ page?: string | string[] }>
@@ -17,12 +17,20 @@ function parsePage(value: string | string[] | undefined) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
 }
 
+function configuredPageSize() {
+  const parsed = Number.parseInt(process.env.JOBS_PAGE_SIZE ?? '', 10)
+  return Number.isFinite(parsed) && parsed >= 10 && parsed <= 250
+    ? parsed
+    : DEFAULT_PAGE_SIZE
+}
+
 export default async function JobsPage({ searchParams }: JobsPageProps) {
   const supabase = await createClient()
   const params = await searchParams
   const page = parsePage(params.page)
-  const from = (page - 1) * PAGE_SIZE
-  const to = from + PAGE_SIZE - 1
+  const pageSize = configuredPageSize()
+  const from = (page - 1) * pageSize
+  const to = from + pageSize - 1
 
   const [
     jobsResult,
@@ -60,7 +68,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   const jobs = (jobsResult.data ?? []) as JobWithCompany[]
   const totalJobs = jobsResult.count ?? 0
-  const totalPages = Math.max(1, Math.ceil(totalJobs / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(totalJobs / pageSize))
   const search =
     (searchSettingResult.data?.value as {
       terms?: string[]
@@ -95,7 +103,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         interviews: interviewResult.count ?? 0,
         offers: offerResult.count ?? 0,
       }}
-      pagination={{ page, pageSize: PAGE_SIZE, total: totalJobs, totalPages }}
+      pagination={{ page, pageSize, total: totalJobs, totalPages }}
       pullAuthorizationToken={createJobPullToken()}
       terms={terms}
       locations={locations}
