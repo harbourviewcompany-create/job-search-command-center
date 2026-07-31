@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState, useTransition } from 'react'
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
@@ -55,7 +55,8 @@ interface Props {
   filters: JobFilterState
   sources: JobSource[]
   pagination: PaginationState
-  pullAuthorizationToken: string | null
+  pullAuthorized: boolean
+  pullAccessConfigured: boolean
   terms: string[]
   locations: string[]
   loadError?: string | null
@@ -76,7 +77,8 @@ export function JobsCommandCenter({
   filters,
   sources,
   pagination,
-  pullAuthorizationToken,
+  pullAuthorized,
+  pullAccessConfigured,
   terms,
   locations,
   loadError,
@@ -86,18 +88,37 @@ export function JobsCommandCenter({
   const [navigationPending, startNavigation] = useTransition()
   const [jobs, setJobs] = useState(initialJobs)
   const [query, setQuery] = useState(filters.query)
+  const queryRef = useRef(filters.query)
+  const searchTimerRef = useRef<number | null>(null)
+  const suppressSearchSyncRef = useRef(false)
 
   useEffect(() => {
     setJobs(initialJobs)
   }, [initialJobs])
 
   useEffect(() => {
+    queryRef.current = filters.query
     setQuery(filters.query)
   }, [filters.query])
 
+  const clearPendingSearch = useCallback(() => {
+    if (searchTimerRef.current !== null) {
+      window.clearTimeout(searchTimerRef.current)
+      searchTimerRef.current = null
+    }
+  }, [])
+
+  useEffect(() => clearPendingSearch, [clearPendingSearch])
+
   const updateFilters = useCallback(
-    (changes: Partial<JobFilterState>) => {
-      const next = { ...filters, ...changes }
+    (changes: Partial<JobFilterState>, options: { fromSearch?: boolean } = {}) => {
+      if (!options.fromSearch) clearPendingSearch()
+
+      const next = {
+        ...filters,
+        query: queryRef.current.trim(),
+        ...changes,
+      }
       const params = new URLSearchParams(searchParams.toString())
 
       if (next.query) params.set('q', next.query)
@@ -117,19 +138,26 @@ export function JobsCommandCenter({
         router.replace(serialized ? `/jobs?${serialized}` : '/jobs', { scroll: false })
       })
     },
-    [filters, router, searchParams]
+    [clearPendingSearch, filters, router, searchParams]
   )
 
   useEffect(() => {
+    if (suppressSearchSyncRef.current) {
+      suppressSearchSyncRef.current = false
+      return
+    }
+
     const normalizedQuery = query.trim()
     if (normalizedQuery === filters.query) return
 
-    const timer = window.setTimeout(() => {
-      updateFilters({ query: normalizedQuery })
+    clearPendingSearch()
+    searchTimerRef.current = window.setTimeout(() => {
+      searchTimerRef.current = null
+      updateFilters({ query: normalizedQuery }, { fromSearch: true })
     }, 350)
 
-    return () => window.clearTimeout(timer)
-  }, [filters.query, query, updateFilters])
+    return clearPendingSearch
+  }, [clearPendingSearch, filters.query, query, updateFilters])
 
   const filtersActive = Boolean(
     filters.query ||
@@ -150,6 +178,9 @@ export function JobsCommandCenter({
   }
 
   function clearFilters() {
+    clearPendingSearch()
+    suppressSearchSyncRef.current = true
+    queryRef.current = ''
     setQuery('')
     startNavigation(() => router.replace('/jobs', { scroll: false }))
   }
@@ -176,7 +207,7 @@ export function JobsCommandCenter({
             </p>
           </div>
           <div className="shrink-0">
-            <PullJobsButton authorizationToken={pullAuthorizationToken} />
+            <PullJobsButton authorized={pullAuthorized} accessConfigured={pullAccessConfigured} />
           </div>
         </div>
       </section>
@@ -291,7 +322,10 @@ export function JobsCommandCenter({
               <input
                 type="search"
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  queryRef.current = event.target.value
+                  setQuery(event.target.value)
+                }}
                 className="input pl-10"
                 placeholder="Search title, company, location…"
               />
