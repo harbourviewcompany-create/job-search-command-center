@@ -33,6 +33,11 @@ async function isAuthorized(request: NextRequest) {
   return !error && Boolean(data.user)
 }
 
+/** Side-effect-free authorization probe used by runtime verification. */
+export async function HEAD(request: NextRequest) {
+  return new NextResponse(null, { status: (await isAuthorized(request)) ? 204 : 401 })
+}
+
 /**
  * Authenticated, unlocked, or service-authorized manual trigger for the
  * scheduled job pull. Browser unlocks use a signed HttpOnly cookie; CI and
