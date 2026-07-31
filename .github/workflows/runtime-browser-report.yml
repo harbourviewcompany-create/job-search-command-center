@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - internal-ui-remediation-20260731
+    paths-ignore:
+      - docs/verification/RUNTIME_BROWSER_VERIFICATION.md
+      - docs/verification/UI_REMEDIATION_CI.md
 
 permissions:
   actions: read
