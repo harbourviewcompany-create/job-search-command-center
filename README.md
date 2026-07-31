@@ -60,11 +60,15 @@ cp .env.example .env.local
 
 Fill in:
 
-```
+```text
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...   # optional for Phase 1 UI
+JOB_PULL_API_KEY=<long-random-secret>
+JOB_PULL_SESSION_SECRET=<optional-independent-cookie-signing-secret>
 ```
+
+`JOB_PULL_API_KEY` protects manual provider pulls. In the current single-user configuration, open `/jobs`, enter this value in the **Manual job-pull access key** field, and select **Unlock pulls**. The server validates the key and issues a signed, HttpOnly, SameSite=Strict browser cookie for 12 hours; the key is not stored in browser-readable state. Select **Lock** to remove browser access. A future Supabase-authenticated session is also accepted automatically. `JOB_PULL_SESSION_SECRET` is optional; when omitted, `JOB_PULL_API_KEY` signs the access cookie.
 
 ### 4. Run locally
 
@@ -83,7 +87,7 @@ Add a few jobs via **Jobs → Add job manually**, mark Interested, then advance 
 1. Push this repo (already on GitHub).
 2. In [vercel.com](https://vercel.com) → **Add New Project** → import `harbourviewcompany-create/job-search-command-center`.
 3. Framework preset: **Next.js** (auto-detected).
-4. Add the same env vars as `.env.local` (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and optionally `SUPABASE_SERVICE_ROLE_KEY`).
+4. Add the same env vars as `.env.local`, including `JOB_PULL_API_KEY` when manual pulls are enabled. Keep `JOB_PULL_API_KEY`, `JOB_PULL_SESSION_SECRET`, and `SUPABASE_SERVICE_ROLE_KEY` server-only; never prefix them with `NEXT_PUBLIC_`.
 5. Deploy. Production URL will be something like `https://job-search-command-center.vercel.app`.
 
 Vercel auto-deploys on every push to `main`.
@@ -115,7 +119,7 @@ See `supabase/migrations/001_initial_schema.sql` for the full DDL. High-level:
 - **outreach_messages** — drafts + sent log with cadence (Phase 3–4)  
 - **settings** — JSON blobs for search terms, offsets, base resume  
 
-Single-user for v1 (no RLS enforced yet; use the anon key in the browser).
+Single-user for v1 (no RLS enforced yet; use the anon key in the browser). Manual provider pulls are separately protected by the server-side access-key/cookie mechanism described above.
 
 ---
 
