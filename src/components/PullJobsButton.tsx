@@ -116,28 +116,41 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
           )}
         </div>
       ) : accessConfigured ? (
-        <form onSubmit={handleUnlock} className="flex w-full flex-col gap-2 sm:flex-row" aria-busy={unlocking}>
-          <label className="relative min-w-0 flex-1">
-            <span className="sr-only">Manual job-pull access key</span>
-            <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-            <input
-              type="password"
-              value={accessKey}
-              onChange={(event) => setAccessKey(event.target.value)}
-              className="min-h-12 w-full rounded-xl border border-white/20 bg-white px-10 py-3 text-sm text-slate-950 shadow-lg shadow-black/20 outline-none placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-brand-400"
-              placeholder="Access key"
-              autoComplete="current-password"
-            />
-          </label>
+        <div className="flex w-full flex-col gap-2">
           <button
-            type="submit"
-            disabled={unlocking || !accessKey.trim()}
-            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-black/20 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            disabled
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 opacity-60 shadow-lg shadow-black/20"
           >
-            <KeyRound className="h-4 w-4" aria-hidden="true" />
-            {unlocking ? 'Unlocking…' : 'Unlock pulls'}
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            Pull latest jobs
           </button>
-        </form>
+          <form onSubmit={handleUnlock} className="flex w-full flex-col gap-2 sm:flex-row" aria-busy={unlocking}>
+            <label className="relative min-w-0 flex-1">
+              <span className="sr-only">Manual job-pull access key</span>
+              <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <input
+                type="password"
+                value={accessKey}
+                onChange={(event) => setAccessKey(event.target.value)}
+                className="min-h-12 w-full rounded-xl border border-white/20 bg-white px-10 py-3 text-sm text-slate-950 shadow-lg shadow-black/20 outline-none placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-brand-400"
+                placeholder="Access key"
+                autoComplete="current-password"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={unlocking || !accessKey.trim()}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-black/20 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <KeyRound className="h-4 w-4" aria-hidden="true" />
+              {unlocking ? 'Unlocking…' : 'Unlock pulls'}
+            </button>
+          </form>
+          <p className="text-xs font-medium text-amber-100">
+            An authenticated Supabase session is required for manual pulls, or unlock this browser with the configured access key.
+          </p>
+        </div>
       ) : (
         <p className="rounded-xl border border-amber-300/30 bg-amber-100/10 px-3 py-2 text-xs font-medium text-amber-100">
           Configure JOB_PULL_API_KEY to enable manual pulls.
