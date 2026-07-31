@@ -1,9 +1,9 @@
 # UI Remediation CI Verification
 
-- Source commit: `42f65f63338c3f10b110e7731d29accc1edf396d`
-- Workflow run: `30644427244`
+- Source commit: `af4dd1370e5b417714d1e47189111faf0c555486`
+- Workflow run: `30644783669`
 - Event: `push`
-- Generated: `2026-07-31T15:48:59Z`
+- Generated: `2026-07-31T15:54:05Z`
 
 | Check | Exit code |
 |---|---:|
@@ -22,7 +22,7 @@ up to date in 1s
 
 $ npm ci --no-audit --no-fund
 
-added 404 packages in 11s
+added 404 packages in 9s
 ```
 
 ## typecheck log tail
@@ -60,31 +60,31 @@ TAP version 13
 # Subtest: repairs UTF-8 text decoded as Windows-1252
 ok 1 - repairs UTF-8 text decoded as Windows-1252
   ---
-  duration_ms: 1.10026
+  duration_ms: 1.048814
   type: 'test'
   ...
 # Subtest: repairs Arabic mojibake visible in imported job locations
 ok 2 - repairs Arabic mojibake visible in imported job locations
   ---
-  duration_ms: 0.289269
+  duration_ms: 0.24829
   type: 'test'
   ...
 # Subtest: preserves valid international text
 ok 3 - preserves valid international text
   ---
-  duration_ms: 0.21993
+  duration_ms: 0.203453
   type: 'test'
   ...
 # Subtest: removes control characters and collapses whitespace
 ok 4 - removes control characters and collapses whitespace
   ---
-  duration_ms: 0.161841
+  duration_ms: 0.140819
   type: 'test'
   ...
 # Subtest: uses fallback for missing values
 ok 5 - uses fallback for missing values
   ---
-  duration_ms: 0.911809
+  duration_ms: 1.032085
   type: 'test'
   ...
 1..5
@@ -95,7 +95,7 @@ ok 5 - uses fallback for missing values
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 61.106979
+# duration_ms 56.996578
 ```
 
 ## build log tail
@@ -127,7 +127,7 @@ Route (app)                              Size     First Load JS
 ├ ƒ /applications/[id]                   3.88 kB         113 kB
 ├ ƒ /contacts                            1.12 kB         107 kB
 ├ ƒ /dashboard                           172 B           109 kB
-├ ƒ /jobs                                9.63 kB         126 kB
+├ ƒ /jobs                                9.67 kB         126 kB
 ├ ƒ /opportunities                       145 B           106 kB
 └ ƒ /settings                            1.21 kB         107 kB
 + First Load JS shared by all            105 kB
