@@ -74,7 +74,8 @@ function decodeMojibakePass(value) {
  * known corruption markers.
  */
 export function repairMojibake(input) {
-  if (typeof input !== 'string' || input.length === 0) return input ?? ''
+  if (typeof input !== 'string') return ''
+  if (input.length === 0) return input
 
   let value = input
   for (let pass = 0; pass < 2; pass += 1) {
