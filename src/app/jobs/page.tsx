@@ -47,6 +47,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       .select('*, companies(*)', { count: 'exact' })
       .in('status', ['found', 'interested', 'dismissed'])
       .order('fit_score', { ascending: false, nullsFirst: false })
+      .order('fetched_at', { ascending: false })
       .range(from, to),
     supabase.from('settings').select('value').eq('key', 'search_terms').maybeSingle(),
     supabase
