@@ -9,6 +9,10 @@ import {
 
 export const runtime = 'nodejs'
 
+function secureCookie(request: Request) {
+  return new URL(request.url).protocol === 'https:'
+}
+
 export async function POST(request: Request) {
   if (!isJobPullAccessConfigured()) {
     return NextResponse.json(
@@ -41,19 +45,19 @@ export async function POST(request: Request) {
   response.cookies.set(JOB_PULL_ACCESS_COOKIE, token, {
     httpOnly: true,
     sameSite: 'strict',
-    secure: process.env.NODE_ENV === 'production',
+    secure: secureCookie(request),
     path: '/',
     maxAge: JOB_PULL_ACCESS_MAX_AGE_SECONDS,
   })
   return response
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   const response = NextResponse.json({ ok: true })
   response.cookies.set(JOB_PULL_ACCESS_COOKIE, '', {
     httpOnly: true,
     sameSite: 'strict',
-    secure: process.env.NODE_ENV === 'production',
+    secure: secureCookie(request),
     path: '/',
     maxAge: 0,
   })
