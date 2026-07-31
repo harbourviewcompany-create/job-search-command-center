@@ -8,7 +8,11 @@ on:
       - docs/verification/RUNTIME_BROWSER_VERIFICATION.md
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: runtime-browser-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   runtime-browser:
@@ -19,7 +23,6 @@ jobs:
       NEXT_TELEMETRY_DISABLED: 1
       NEXT_PUBLIC_SUPABASE_URL: https://zvxdgdkukjrrwamdpqrg.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2eGRnZGt1a2pycndhbWRwcXJnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNDMxNzUsImV4cCI6MjA5MjgxOTE3NX0.MEGWEsDpJO3964Ef2G2Cbo-Q5JKT46WB1xtlXE-ue5M
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       RUNTIME_BASE_URL: http://127.0.0.1:3000
       RUNTIME_EVIDENCE_DIR: qa/runtime-browser
 
@@ -181,7 +184,7 @@ jobs:
             kill "$(cat qa/runtime-browser/server.pid)" 2>/dev/null || true
           fi
 
-      - name: Assemble branch verification report
+      - name: Assemble verification report
         if: always()
         shell: bash
         run: |
@@ -194,7 +197,7 @@ jobs:
             echo "- Connected Supabase project: \`zvxdgdkukjrrwamdpqrg\`"
             echo "- Deployment performed: \`no\`"
             echo "- Merge performed: \`no\`"
-            echo "- Service-role secret available to runtime: \`$([ -n \"${SUPABASE_SERVICE_ROLE_KEY}\" ] && echo yes || echo no)\`"
+            echo "- Edge Function invocation credential: \`application publishable JWT\`"
             echo
             echo "| Gate | Exit code |"
             echo "|---|---:|"
@@ -242,18 +245,6 @@ jobs:
             docs/verification/RUNTIME_BROWSER_VERIFICATION.md
           if-no-files-found: warn
           retention-days: 30
-
-      - name: Commit verification report to review branch
-        if: always()
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/verification/RUNTIME_BROWSER_VERIFICATION.md
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: record runtime browser verification [skip ci]"
-            git push origin "HEAD:internal-ui-remediation-20260731"
-          fi
 
       - name: Enforce final runtime gate
         if: always()
