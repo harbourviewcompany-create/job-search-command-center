@@ -1,9 +1,9 @@
 # UI Remediation CI Verification
 
-- Source commit: `5f4b59061547ba89f0d9d2a06a01d1c800f609fa`
-- Workflow run: `30642184437`
+- Source commit: `5d8d5b4c6cfd4004dfa3e4fe05e438495ebfe53d`
+- Workflow run: `30642266003`
 - Event: `push`
-- Generated: `2026-07-31T15:17:33Z`
+- Generated: `2026-07-31T15:18:35Z`
 
 | Check | Exit code |
 |---|---:|
@@ -18,7 +18,7 @@
 ```text
 $ npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
-up to date in 2s
+up to date in 894ms
 
 $ npm ci --no-audit --no-fund
 
@@ -60,31 +60,31 @@ TAP version 13
 # Subtest: repairs UTF-8 text decoded as Windows-1252
 ok 1 - repairs UTF-8 text decoded as Windows-1252
   ---
-  duration_ms: 1.092122
+  duration_ms: 1.153938
   type: 'test'
   ...
 # Subtest: repairs Arabic mojibake visible in imported job locations
 ok 2 - repairs Arabic mojibake visible in imported job locations
   ---
-  duration_ms: 0.251876
+  duration_ms: 0.260306
   type: 'test'
   ...
 # Subtest: preserves valid international text
 ok 3 - preserves valid international text
   ---
-  duration_ms: 0.244241
+  duration_ms: 0.223448
   type: 'test'
   ...
 # Subtest: removes control characters and collapses whitespace
 ok 4 - removes control characters and collapses whitespace
   ---
-  duration_ms: 0.167285
+  duration_ms: 0.165088
   type: 'test'
   ...
 # Subtest: uses fallback for missing values
 ok 5 - uses fallback for missing values
   ---
-  duration_ms: 0.930356
+  duration_ms: 0.871089
   type: 'test'
   ...
 1..5
@@ -95,7 +95,7 @@ ok 5 - uses fallback for missing values
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 61.17812
+# duration_ms 64.045468
 ```
 
 ## build log tail
@@ -108,12 +108,6 @@ ok 5 - uses fallback for missing values
    ▲ Next.js 15.1.12
 
    Creating an optimized production build ...
-request to https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap failed, reason: 
-
-Retrying 1/3...
-request to https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap failed, reason: 
-
-Retrying 2/3...
  ✓ Compiled successfully
    Linting and checking validity of types ...
    Collecting page data ...
