@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation'
 import { RefreshCw } from 'lucide-react'
 
 interface Props {
-  authorized: boolean
+  authorizationToken: 'session' | null
 }
 
-export function PullJobsButton({ authorized }: Props) {
+export function PullJobsButton({ authorizationToken }: Props) {
   const [pending, startTransition] = useTransition()
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
   const router = useRouter()
+  const authorized = authorizationToken === 'session'
 
   function handlePull() {
     if (!authorized) {
