@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState, useTransition } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   AlertTriangle,
   BriefcaseBusiness,
@@ -22,8 +23,13 @@ import { JobCard } from '@/components/JobCard'
 import { LinkedInImportForm } from '@/components/LinkedInImportForm'
 import { LinkedInSearchLinks } from '@/components/LinkedInSearchLinks'
 import { PullJobsButton } from '@/components/PullJobsButton'
-import { formatSource, getWorkArrangement } from '@/lib/jobs'
-import { normalizeDisplayText } from '@/lib/text.mjs'
+import {
+  formatSource,
+  type JobArrangementFilter,
+  type JobFilterState,
+  type JobSort,
+  type JobStatusFilter,
+} from '@/lib/jobs'
 import { cn } from '@/lib/utils'
 import type { JobSource, JobStatus, JobWithCompany } from '@/types/database'
 
@@ -46,42 +52,13 @@ interface PaginationState {
 interface Props {
   initialJobs: JobWithCompany[]
   metrics: PipelineMetrics
+  filters: JobFilterState
+  sources: JobSource[]
   pagination: PaginationState
   pullAuthorizationToken: string | null
   terms: string[]
   locations: string[]
   loadError?: string | null
-}
-
-type StatusFilter = 'active' | 'all' | JobStatus
-type ArrangementFilter = 'all' | 'remote' | 'hybrid' | 'location'
-type SortOption = 'fit' | 'newest' | 'oldest' | 'company'
-
-function jobTimestamp(job: JobWithCompany) {
-  const timestamp = new Date(job.posted_at ?? job.fetched_at).getTime()
-  return Number.isFinite(timestamp) ? timestamp : 0
-}
-
-function matchesArrangement(job: JobWithCompany, arrangement: ArrangementFilter) {
-  return arrangement === 'all' || getWorkArrangement(job) === arrangement
-}
-
-function compareCompanies(left: JobWithCompany, right: JobWithCompany) {
-  const leftCompany = normalizeDisplayText(left.companies?.name)
-  const rightCompany = normalizeDisplayText(right.companies?.name)
-
-  if (!leftCompany && !rightCompany) return 0
-  if (!leftCompany) return 1
-  if (!rightCompany) return -1
-
-  return leftCompany.localeCompare(rightCompany, undefined, {
-    sensitivity: 'base',
-    numeric: true,
-  })
-}
-
-function pageHref(page: number) {
-  return page <= 1 ? '/jobs' : `/jobs?page=${page}`
 }
 
 const metricCards = [
@@ -96,77 +73,90 @@ const metricCards = [
 export function JobsCommandCenter({
   initialJobs,
   metrics,
+  filters,
+  sources,
   pagination,
   pullAuthorizationToken,
   terms,
   locations,
   loadError,
 }: Props) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [navigationPending, startNavigation] = useTransition()
   const [jobs, setJobs] = useState(initialJobs)
-  const [query, setQuery] = useState('')
-  const [status, setStatus] = useState<StatusFilter>('active')
-  const [source, setSource] = useState<'all' | JobSource>('all')
-  const [arrangement, setArrangement] = useState<ArrangementFilter>('all')
-  const [sort, setSort] = useState<SortOption>('fit')
+  const [query, setQuery] = useState(filters.query)
 
   useEffect(() => {
     setJobs(initialJobs)
   }, [initialJobs])
 
-  const sources = useMemo(
-    () => Array.from(new Set(jobs.map((job) => job.source))).sort(),
-    [jobs]
+  useEffect(() => {
+    setQuery(filters.query)
+  }, [filters.query])
+
+  const updateFilters = useCallback(
+    (changes: Partial<JobFilterState>) => {
+      const next = { ...filters, ...changes }
+      const params = new URLSearchParams(searchParams.toString())
+
+      if (next.query) params.set('q', next.query)
+      else params.delete('q')
+      if (next.status !== 'active') params.set('status', next.status)
+      else params.delete('status')
+      if (next.source !== 'all') params.set('source', next.source)
+      else params.delete('source')
+      if (next.arrangement !== 'all') params.set('arrangement', next.arrangement)
+      else params.delete('arrangement')
+      if (next.sort !== 'fit') params.set('sort', next.sort)
+      else params.delete('sort')
+      params.delete('page')
+
+      const serialized = params.toString()
+      startNavigation(() => {
+        router.replace(serialized ? `/jobs?${serialized}` : '/jobs', { scroll: false })
+      })
+    },
+    [filters, router, searchParams]
   )
 
-  const filteredJobs = useMemo(() => {
-    const normalizedQuery = normalizeDisplayText(query).toLowerCase()
+  useEffect(() => {
+    const normalizedQuery = query.trim()
+    if (normalizedQuery === filters.query) return
 
-    return jobs
-      .filter((job) => {
-        if (status === 'active' && job.status === 'dismissed') return false
-        if (status !== 'active' && status !== 'all' && job.status !== status) return false
-        if (source !== 'all' && job.source !== source) return false
-        if (!matchesArrangement(job, arrangement)) return false
+    const timer = window.setTimeout(() => {
+      updateFilters({ query: normalizedQuery })
+    }, 350)
 
-        if (!normalizedQuery) return true
-        const searchable = [
-          job.title,
-          job.companies?.name,
-          job.location,
-          job.source,
-          job.job_type,
-          job.description,
-        ]
-          .map((value) => normalizeDisplayText(value))
-          .join(' ')
-          .toLowerCase()
-
-        return searchable.includes(normalizedQuery)
-      })
-      .sort((left, right) => {
-        if (sort === 'newest') return jobTimestamp(right) - jobTimestamp(left)
-        if (sort === 'oldest') return jobTimestamp(left) - jobTimestamp(right)
-        if (sort === 'company') return compareCompanies(left, right)
-        return (right.fit_score ?? -1) - (left.fit_score ?? -1)
-      })
-  }, [arrangement, jobs, query, sort, source, status])
+    return () => window.clearTimeout(timer)
+  }, [filters.query, query, updateFilters])
 
   const filtersActive = Boolean(
-    query || status !== 'active' || source !== 'all' || arrangement !== 'all' || sort !== 'fit'
+    filters.query ||
+      filters.status !== 'active' ||
+      filters.source !== 'all' ||
+      filters.arrangement !== 'all' ||
+      filters.sort !== 'fit'
   )
   const firstRecord = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1
   const lastRecord = Math.min(pagination.page * pagination.pageSize, pagination.total)
 
+  function pageHref(page: number) {
+    const params = new URLSearchParams(searchParams.toString())
+    if (page <= 1) params.delete('page')
+    else params.set('page', String(page))
+    const serialized = params.toString()
+    return serialized ? `/jobs?${serialized}` : '/jobs'
+  }
+
   function clearFilters() {
     setQuery('')
-    setStatus('active')
-    setSource('all')
-    setArrangement('all')
-    setSort('fit')
+    startNavigation(() => router.replace('/jobs', { scroll: false }))
   }
 
   function handleStatusChange(jobId: string, nextStatus: JobStatus) {
     setJobs((current) => current.map((job) => (job.id === jobId ? { ...job, status: nextStatus } : job)))
+    router.refresh()
   }
 
   return (
@@ -216,7 +206,7 @@ export function JobsCommandCenter({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
           {metricCards.map(({ key, label, icon: Icon, tone }) => {
             const isJobFilter = key === 'triage' || key === 'interested' || key === 'dismissed'
-            const nextStatus: StatusFilter = key === 'triage' ? 'found' : key === 'interested' ? 'interested' : 'dismissed'
+            const nextStatus: JobStatusFilter = key === 'triage' ? 'found' : key === 'interested' ? 'interested' : 'dismissed'
             const content = (
               <>
                 <div className={cn('inline-flex h-9 w-9 items-center justify-center rounded-xl ring-1 ring-inset', tone)}>
@@ -231,7 +221,7 @@ export function JobsCommandCenter({
               <button
                 key={key}
                 type="button"
-                onClick={() => setStatus(nextStatus)}
+                onClick={() => updateFilters({ status: nextStatus })}
                 className="card min-h-32 p-4 text-left transition hover:-translate-y-0.5 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                 aria-label={`Filter jobs by ${label}`}
               >
@@ -267,14 +257,23 @@ export function JobsCommandCenter({
         </div>
       </details>
 
-      <section aria-labelledby="jobs-heading" className="space-y-4">
+      <section
+        aria-labelledby="jobs-heading"
+        aria-busy={navigationPending}
+        data-filter-query={filters.query}
+        data-filter-status={filters.status}
+        data-filter-source={filters.source}
+        data-filter-arrangement={filters.arrangement}
+        data-filter-sort={filters.sort}
+        className={cn('space-y-4 transition-opacity', navigationPending && 'opacity-70')}
+      >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 id="jobs-heading" className="text-xl font-semibold tracking-tight text-slate-950">
               Jobs
             </h2>
             <p className="mt-0.5 text-sm text-slate-500" aria-live="polite" data-pagination-total={pagination.total}>
-              Showing {filteredJobs.length} filtered results from {jobs.length} jobs on this page · records {firstRecord}–{lastRecord} of {pagination.total}
+              Showing {jobs.length} jobs · records {firstRecord}–{lastRecord} of {pagination.total} matching results
             </p>
           </div>
           {filtersActive && (
@@ -300,7 +299,7 @@ export function JobsCommandCenter({
 
             <label>
               <span className="sr-only">Status</span>
-              <select value={status} onChange={(event) => setStatus(event.target.value as StatusFilter)} className="select">
+              <select value={filters.status} onChange={(event) => updateFilters({ status: event.target.value as JobStatusFilter })} className="select">
                 <option value="active">Active jobs</option>
                 <option value="all">All statuses</option>
                 <option value="found">To triage</option>
@@ -311,7 +310,7 @@ export function JobsCommandCenter({
 
             <label>
               <span className="sr-only">Source</span>
-              <select value={source} onChange={(event) => setSource(event.target.value as 'all' | JobSource)} className="select">
+              <select value={filters.source} onChange={(event) => updateFilters({ source: event.target.value as 'all' | JobSource })} className="select">
                 <option value="all">All sources</option>
                 {sources.map((jobSource) => (
                   <option key={jobSource} value={jobSource}>
@@ -323,7 +322,7 @@ export function JobsCommandCenter({
 
             <label>
               <span className="sr-only">Work arrangement</span>
-              <select value={arrangement} onChange={(event) => setArrangement(event.target.value as ArrangementFilter)} className="select">
+              <select value={filters.arrangement} onChange={(event) => updateFilters({ arrangement: event.target.value as JobArrangementFilter })} className="select">
                 <option value="all">Any arrangement</option>
                 <option value="remote">Remote</option>
                 <option value="hybrid">Hybrid</option>
@@ -333,7 +332,7 @@ export function JobsCommandCenter({
 
             <label>
               <span className="sr-only">Sort jobs</span>
-              <select value={sort} onChange={(event) => setSort(event.target.value as SortOption)} className="select">
+              <select value={filters.sort} onChange={(event) => updateFilters({ sort: event.target.value as JobSort })} className="select">
                 <option value="fit">Best fit</option>
                 <option value="newest">Newest first</option>
                 <option value="oldest">Oldest first</option>
@@ -343,13 +342,13 @@ export function JobsCommandCenter({
           </div>
           <div className="mt-3 flex items-center gap-2 text-xs text-slate-500 lg:hidden">
             <Filter className="h-3.5 w-3.5" aria-hidden="true" />
-            Filters are applied instantly to the current page.
+            Filters and sorting are applied across the complete pipeline.
           </div>
         </div>
 
-        {filteredJobs.length > 0 ? (
+        {jobs.length > 0 ? (
           <div className="grid items-stretch gap-4 xl:grid-cols-2">
-            {filteredJobs.map((job) => (
+            {jobs.map((job) => (
               <JobCard key={job.id} job={job} onStatusChange={handleStatusChange} />
             ))}
           </div>
@@ -358,13 +357,9 @@ export function JobsCommandCenter({
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
               <Search className="h-5 w-5" aria-hidden="true" />
             </div>
-            <h3 className="mt-4 text-base font-semibold text-slate-950">
-              {jobs.length === 0 ? 'No jobs on this page' : 'No jobs match these filters'}
-            </h3>
+            <h3 className="mt-4 text-base font-semibold text-slate-950">No jobs match these filters</h3>
             <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-              {jobs.length === 0
-                ? 'Use the pagination controls or add and import jobs to continue.'
-                : 'Clear or change the current search and filters.'}
+              Clear or change the current search and filters.
             </p>
           </div>
         )}
