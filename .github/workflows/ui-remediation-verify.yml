@@ -32,15 +32,32 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install locked dependencies
+      - name: Synchronize lockfile and install dependencies
         id: install
         shell: bash
         run: |
           set +e
-          npm ci > /tmp/install.log 2>&1
-          code=$?
+          {
+            echo '$ npm install --package-lock-only --ignore-scripts --no-audit --no-fund'
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+            lock_code=$?
+            echo
+            echo '$ npm ci --no-audit --no-fund'
+            if [ "$lock_code" = "0" ]; then
+              npm ci --no-audit --no-fund
+              ci_code=$?
+            else
+              echo 'Lockfile synchronization failed; npm ci skipped.'
+              ci_code=125
+            fi
+          } > /tmp/install.log 2>&1
+          if [ "$lock_code" != "0" ]; then
+            code=$lock_code
+          else
+            code=$ci_code
+          fi
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          tail -n 80 /tmp/install.log
+          tail -n 100 /tmp/install.log
           exit 0
 
       - name: Typecheck
@@ -122,7 +139,7 @@ jobs:
             echo
             echo "| Check | Exit code |"
             echo "|---|---:|"
-            echo "| npm ci | ${{ steps.install.outputs.exit_code }} |"
+            echo "| lockfile sync + npm ci | ${{ steps.install.outputs.exit_code }} |"
             echo "| npm run typecheck | ${{ steps.typecheck.outputs.exit_code }} |"
             echo "| npm run lint | ${{ steps.lint.outputs.exit_code }} |"
             echo "| npm test | ${{ steps.tests.outputs.exit_code }} |"
@@ -138,15 +155,15 @@ jobs:
             done
           } > docs/verification/UI_REMEDIATION_CI.md
 
-      - name: Commit verification report to review branch
+      - name: Commit verification evidence to review branch
         if: always() && github.event_name == 'push'
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/verification/UI_REMEDIATION_CI.md
+          git add package-lock.json docs/verification/UI_REMEDIATION_CI.md
           if ! git diff --cached --quiet; then
-            git commit -m "chore: record UI verification [skip ci]"
+            git commit -m "chore: synchronize lockfile and record verification [skip ci]"
             git push origin "HEAD:internal-ui-remediation-20260731"
           fi
 
