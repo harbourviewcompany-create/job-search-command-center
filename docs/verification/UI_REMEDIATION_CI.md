@@ -1,9 +1,9 @@
 # UI Remediation CI Verification
 
-- Source commit: `7b892c4b17b285962bed1f00c84a93afa4c10fe6`
-- Workflow run: `30643540663`
+- Source commit: `a6035ef6f24ae351f9d280c2e11f1240242dcac3`
+- Workflow run: `30643615675`
 - Event: `push`
-- Generated: `2026-07-31T15:36:25Z`
+- Generated: `2026-07-31T15:37:36Z`
 
 | Check | Exit code |
 |---|---:|
@@ -18,11 +18,11 @@
 ```text
 $ npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
-up to date in 814ms
+up to date in 2s
 
 $ npm ci --no-audit --no-fund
 
-added 404 packages in 10s
+added 404 packages in 11s
 ```
 
 ## typecheck log tail
@@ -60,31 +60,31 @@ TAP version 13
 # Subtest: repairs UTF-8 text decoded as Windows-1252
 ok 1 - repairs UTF-8 text decoded as Windows-1252
   ---
-  duration_ms: 1.125416
+  duration_ms: 1.157238
   type: 'test'
   ...
 # Subtest: repairs Arabic mojibake visible in imported job locations
 ok 2 - repairs Arabic mojibake visible in imported job locations
   ---
-  duration_ms: 0.285905
+  duration_ms: 0.271677
   type: 'test'
   ...
 # Subtest: preserves valid international text
 ok 3 - preserves valid international text
   ---
-  duration_ms: 0.220052
+  duration_ms: 0.22546
   type: 'test'
   ...
 # Subtest: removes control characters and collapses whitespace
 ok 4 - removes control characters and collapses whitespace
   ---
-  duration_ms: 0.161482
+  duration_ms: 0.167092
   type: 'test'
   ...
 # Subtest: uses fallback for missing values
 ok 5 - uses fallback for missing values
   ---
-  duration_ms: 0.926405
+  duration_ms: 1.19608
   type: 'test'
   ...
 1..5
@@ -95,7 +95,7 @@ ok 5 - uses fallback for missing values
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 60.952814
+# duration_ms 64.191635
 ```
 
 ## build log tail
@@ -127,7 +127,7 @@ Route (app)                              Size     First Load JS
 ├ ƒ /applications/[id]                   3.88 kB         113 kB
 ├ ƒ /contacts                            1.12 kB         107 kB
 ├ ƒ /dashboard                           172 B           109 kB
-├ ƒ /jobs                                9.63 kB         126 kB
+├ ƒ /jobs                                9.62 kB         126 kB
 ├ ƒ /opportunities                       145 B           106 kB
 └ ƒ /settings                            1.21 kB         107 kB
 + First Load JS shared by all            105 kB
