@@ -148,7 +148,7 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
             </button>
           </form>
           <p className="text-xs font-medium text-amber-100">
-            An authenticated Supabase session is required for manual pulls, or unlock this browser with the configured access key.
+            An authenticated Supabase session is required for manual pulls. Alternatively, unlock this browser with the configured access key.
           </p>
         </div>
       ) : (
