@@ -20,6 +20,24 @@ export interface ApolloSearchParams {
   limit?: number
 }
 
+interface ApolloApiPerson {
+  id?: string | number | null
+  first_name?: string | null
+  last_name?: string | null
+  name?: string | null
+  title?: string | null
+  headline?: string | null
+  email?: string | null
+  linkedin_url?: string | null
+  organization?: { name?: string | null } | null
+  organization_name?: string | null
+}
+
+interface ApolloApiResponse {
+  people?: ApolloApiPerson[]
+  contacts?: ApolloApiPerson[]
+}
+
 export async function searchApolloPeople(
   params: ApolloSearchParams
 ): Promise<{ people: ApolloPerson[]; error?: string }> {
@@ -67,21 +85,25 @@ export async function searchApolloPeople(
       }
     }
 
-    const data = await res.json()
-    const people: ApolloPerson[] = (data.people ?? data.contacts ?? []).map(
-      (p: any) => ({
-        name:
-          [p.first_name, p.last_name].filter(Boolean).join(' ') ||
-          p.name ||
-          'Unknown',
-        title: p.title ?? p.headline ?? null,
-        email: p.email ?? p.email_status === 'verified' ? p.email : null,
-        linkedin_url: p.linkedin_url ?? null,
-        organization_name:
-          p.organization?.name ?? p.organization_name ?? params.companyName,
-        apollo_id: p.id ? String(p.id) : null,
-      })
-    )
+    const data = (await res.json()) as ApolloApiResponse
+    const rawPeople = Array.isArray(data.people)
+      ? data.people
+      : Array.isArray(data.contacts)
+        ? data.contacts
+        : []
+
+    const people: ApolloPerson[] = rawPeople.map((person) => ({
+      name:
+        [person.first_name, person.last_name].filter(Boolean).join(' ') ||
+        person.name ||
+        'Unknown',
+      title: person.title ?? person.headline ?? null,
+      email: typeof person.email === 'string' && person.email.length > 0 ? person.email : null,
+      linkedin_url: person.linkedin_url ?? null,
+      organization_name:
+        person.organization?.name ?? person.organization_name ?? params.companyName,
+      apollo_id: person.id == null ? null : String(person.id),
+    }))
 
     return { people }
   } catch (err) {
