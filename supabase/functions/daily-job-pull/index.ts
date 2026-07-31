@@ -340,7 +340,12 @@ Deno.serve(async (req) => {
     let adzunaAppId = Deno.env.get('ADZUNA_APP_ID')
     let adzunaAppKey = Deno.env.get('ADZUNA_APP_KEY')
     if (!adzunaAppId || !adzunaAppKey) {
-      const { data: creds } = await supabase.rpc('get_adzuna_credentials').maybeSingle()
+      const { data: creds, error: credsError } = await supabase
+        .rpc('get_adzuna_credentials')
+        .maybeSingle()
+      if (credsError) {
+        console.error('get_adzuna_credentials RPC failed', credsError)
+      }
       adzunaAppId = adzunaAppId || creds?.app_id || undefined
       adzunaAppKey = adzunaAppKey || creds?.app_key || undefined
     }
