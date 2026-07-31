@@ -89,9 +89,9 @@ function attachEvidence(page, label) {
   })
 }
 
-async function capture(page, name) {
+async function capture(page, name, { fullPage = true } = {}) {
   const path = `${evidenceDir}/${name}.png`
-  await page.screenshot({ path, fullPage: true })
+  await page.screenshot({ path, fullPage })
   screenshots.push(path)
   return path
 }
@@ -193,6 +193,15 @@ async function cardMetadataValues(page, kind) {
   )
 }
 
+function compareDisplayedCompanies(left, right) {
+  const leftUnknown = left === 'Unknown company'
+  const rightUnknown = right === 'Unknown company'
+  if (leftUnknown && rightUnknown) return 0
+  if (leftUnknown) return 1
+  if (rightUnknown) return -1
+  return left.localeCompare(right, undefined, { sensitivity: 'base', numeric: true })
+}
+
 async function verifyFiltersAndSorts(page) {
   const cards = page.locator('article')
   const search = page.getByRole('searchbox', { name: 'Search jobs', exact: true })
@@ -268,10 +277,14 @@ async function verifyFiltersAndSorts(page) {
   await sortSelect(page).selectOption('company')
   result = await cards.evaluateAll((articles) => {
     const values = articles.map((article) => article.querySelector('h2')?.nextElementSibling?.textContent?.trim() ?? '')
-    const sorted = [...values].sort((left, right) => left.localeCompare(right))
-    return { values, valid: values.every((value, index) => value === sorted[index]) }
+    return { values }
   })
-  record('Sort: company A–Z', result.valid, result.values.slice(0, 8).join(' | '))
+  const sortedCompanies = [...result.values].sort(compareDisplayedCompanies)
+  record(
+    'Sort: company A–Z',
+    result.values.every((value, index) => value === sortedCompanies[index]),
+    result.values.slice(0, 8).join(' | ')
+  )
 
   for (const [option, direction] of [['newest', 'desc'], ['oldest', 'asc']]) {
     await sortSelect(page).selectOption(option)
@@ -402,7 +415,7 @@ async function verifyIosSafeArea() {
   assert(result.headerTop >= 0 && result.mainTop >= result.headerBottom - 1, JSON.stringify(result))
   assert(result.overflow <= 1, `${result.overflow}px`)
   record('iOS WebKit: viewport-fit and safe-area rules verified', true, result)
-  await capture(page, 'jobs-webkit-ios-375')
+  await capture(page, 'jobs-webkit-ios-375', { fullPage: false })
   await context.close()
   await browser.close()
 }
@@ -442,9 +455,10 @@ try {
   })
 
   await verify('Search, every filter, and every sort option', async () => {
+    const failureCountBefore = checks.filter((check) => !check.passed).length
     await verifyFiltersAndSorts(page)
-    const failures = checks.filter((check) => !check.passed)
-    assert.equal(failures.length, 0, failures.map((item) => item.name).join(', '))
+    const newFailures = checks.filter((check) => !check.passed).slice(failureCountBefore)
+    assert.equal(newFailures.length, 0, newFailures.map((item) => item.name).join(', '))
     return 'All search/filter/sort assertions completed'
   })
 
