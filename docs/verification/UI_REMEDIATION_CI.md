@@ -1,17 +1,17 @@
 # UI Remediation CI Verification
 
-- Source commit: `dcd8de8417ba39550d0a7b64dca7226c3ee5f95d`
-- Workflow run: `30644955874`
+- Source commit: `c9d69e5fc8973228bb7d14d7b5969704c46726c8`
+- Workflow run: `30657270157`
 - Event: `push`
-- Generated: `2026-07-31T15:56:28Z`
+- Generated: `2026-07-31T18:59:09Z`
 
 | Check | Exit code |
 |---|---:|
 | lockfile sync + npm ci | 0 |
-| npm run typecheck | 0 |
+| npm run typecheck | 2 |
 | npm run lint | 0 |
 | npm test | 0 |
-| npm run build | 0 |
+| npm run build | 1 |
 
 ## install log tail
 
@@ -32,6 +32,9 @@ added 404 packages in 11s
 > job-search-command-center@0.1.0 typecheck
 > tsc --noEmit
 
+src/app/jobs/page.tsx(98,7): error TS2322: Type '{ initialJobs: JobWithCompany[]; metrics: { triage: number; interested: number; dismissed: number; applied: number; interviews: number; offers: number; }; pagination: { page: number; pageSize: number; total: number; totalPages: number; }; pullAuthorizationToken: string | null; terms: string[]; locations: string[]; l...' is not assignable to type 'IntrinsicAttributes & Props'.
+  Property 'pagination' does not exist on type 'IntrinsicAttributes & Props'.
+src/components/JobsCommandCenter.tsx(164,14): error TS2741: Property 'authorizationToken' is missing in type '{}' but required in type 'Props'.
 ```
 
 ## lint log tail
@@ -60,42 +63,48 @@ TAP version 13
 # Subtest: repairs UTF-8 text decoded as Windows-1252
 ok 1 - repairs UTF-8 text decoded as Windows-1252
   ---
-  duration_ms: 1.118606
+  duration_ms: 1.226512
   type: 'test'
   ...
 # Subtest: repairs Arabic mojibake visible in imported job locations
 ok 2 - repairs Arabic mojibake visible in imported job locations
   ---
-  duration_ms: 0.288268
+  duration_ms: 0.212407
   type: 'test'
   ...
 # Subtest: preserves valid international text
 ok 3 - preserves valid international text
   ---
-  duration_ms: 0.222715
+  duration_ms: 0.269294
   type: 'test'
   ...
 # Subtest: removes control characters and collapses whitespace
 ok 4 - removes control characters and collapses whitespace
   ---
-  duration_ms: 0.162423
+  duration_ms: 0.989278
   type: 'test'
   ...
 # Subtest: uses fallback for missing values
 ok 5 - uses fallback for missing values
   ---
-  duration_ms: 0.955822
+  duration_ms: 0.188282
   type: 'test'
   ...
-1..5
-# tests 5
+# Subtest: repairMojibake always returns a string for arbitrary input
+ok 6 - repairMojibake always returns a string for arbitrary input
+  ---
+  duration_ms: 0.138629
+  type: 'test'
+  ...
+1..6
+# tests 6
 # suites 0
-# pass 5
+# pass 6
 # fail 0
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 61.989863
+# duration_ms 68.805967
 ```
 
 ## build log tail
@@ -110,34 +119,19 @@ ok 5 - uses fallback for missing values
    Creating an optimized production build ...
  ✓ Compiled successfully
    Linting and checking validity of types ...
-   Collecting page data ...
-   Generating static pages (0/5) ...
-   Generating static pages (1/5) 
-   Generating static pages (2/5) 
-   Generating static pages (3/5) 
- ✓ Generating static pages (5/5)
-   Finalizing page optimization ...
-   Collecting build traces ...
+Failed to compile.
 
-Route (app)                              Size     First Load JS
-┌ ○ /                                    145 B           106 kB
-├ ○ /_not-found                          979 B           106 kB
-├ ƒ /api/jobs/pull                       145 B           106 kB
-├ ƒ /applications                        1.36 kB         118 kB
-├ ƒ /applications/[id]                   3.88 kB         113 kB
-├ ƒ /contacts                            1.12 kB         107 kB
-├ ƒ /dashboard                           172 B           109 kB
-├ ƒ /jobs                                9.67 kB         126 kB
-├ ƒ /opportunities                       145 B           106 kB
-└ ƒ /settings                            1.21 kB         107 kB
-+ First Load JS shared by all            105 kB
-  ├ chunks/4bd1b696-e45e92f545646ecc.js  52.9 kB
-  ├ chunks/517-f30518cc560ece48.js       50.6 kB
-  └ other shared chunks (total)          1.91 kB
+./src/app/jobs/page.tsx:98:7
+Type error: Type '{ initialJobs: JobWithCompany[]; metrics: { triage: number; interested: number; dismissed: number; applied: number; interviews: number; offers: number; }; pagination: { page: number; pageSize: number; total: number; totalPages: number; }; pullAuthorizationToken: string | null; terms: string[]; locations: string[]; l...' is not assignable to type 'IntrinsicAttributes & Props'.
+  Property 'pagination' does not exist on type 'IntrinsicAttributes & Props'.
 
-
-○  (Static)   prerendered as static content
-ƒ  (Dynamic)  server-rendered on demand
-
+[0m [90m  96 |[39m         offers[33m:[39m offerResult[33m.[39mcount [33m?[39m[33m?[39m [35m0[39m[33m,[39m[0m
+[0m [90m  97 |[39m       }}[0m
+[0m[31m[1m>[22m[39m[90m  98 |[39m       pagination[33m=[39m{{ page[33m,[39m pageSize[33m:[39m [33mPAGE_SIZE[39m[33m,[39m total[33m:[39m totalJobs[33m,[39m totalPages }}[0m
+[0m [90m     |[39m       [31m[1m^[22m[39m[0m
+[0m [90m  99 |[39m       pullAuthorizationToken[33m=[39m{createJobPullToken()}[0m
+[0m [90m 100 |[39m       terms[33m=[39m{terms}[0m
+[0m [90m 101 |[39m       locations[33m=[39m{locations}[0m
+Next.js build worker exited with code: 1 and signal: null
 ```
 
