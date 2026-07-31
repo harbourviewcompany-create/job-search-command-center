@@ -71,6 +71,14 @@ const metricCards = [
   { key: 'dismissed', label: 'Dismissed', icon: X, tone: 'text-slate-600 bg-slate-100 ring-slate-200' },
 ] as const
 
+const defaultFilters: JobFilterState = {
+  query: '',
+  status: 'active',
+  source: 'all',
+  arrangement: 'all',
+  sort: 'fit',
+}
+
 export function JobsCommandCenter({
   initialJobs,
   metrics,
@@ -88,6 +96,7 @@ export function JobsCommandCenter({
   const [navigationPending, startNavigation] = useTransition()
   const [jobs, setJobs] = useState(initialJobs)
   const [query, setQuery] = useState(filters.query)
+  const filtersRef = useRef(filters)
   const queryRef = useRef(filters.query)
   const searchTimerRef = useRef<number | null>(null)
   const suppressSearchSyncRef = useRef(false)
@@ -97,9 +106,10 @@ export function JobsCommandCenter({
   }, [initialJobs])
 
   useEffect(() => {
+    filtersRef.current = filters
     queryRef.current = filters.query
     setQuery(filters.query)
-  }, [filters.query])
+  }, [filters])
 
   const clearPendingSearch = useCallback(() => {
     if (searchTimerRef.current !== null) {
@@ -114,31 +124,26 @@ export function JobsCommandCenter({
     (changes: Partial<JobFilterState>, options: { fromSearch?: boolean } = {}) => {
       if (!options.fromSearch) clearPendingSearch()
 
-      const next = {
-        ...filters,
+      const next: JobFilterState = {
+        ...filtersRef.current,
         query: queryRef.current.trim(),
         ...changes,
       }
-      const params = new URLSearchParams(searchParams.toString())
+      filtersRef.current = next
 
+      const params = new URLSearchParams()
       if (next.query) params.set('q', next.query)
-      else params.delete('q')
       if (next.status !== 'active') params.set('status', next.status)
-      else params.delete('status')
       if (next.source !== 'all') params.set('source', next.source)
-      else params.delete('source')
       if (next.arrangement !== 'all') params.set('arrangement', next.arrangement)
-      else params.delete('arrangement')
       if (next.sort !== 'fit') params.set('sort', next.sort)
-      else params.delete('sort')
-      params.delete('page')
 
       const serialized = params.toString()
       startNavigation(() => {
         router.replace(serialized ? `/jobs?${serialized}` : '/jobs', { scroll: false })
       })
     },
-    [clearPendingSearch, filters, router, searchParams]
+    [clearPendingSearch, router]
   )
 
   useEffect(() => {
@@ -179,7 +184,9 @@ export function JobsCommandCenter({
 
   function clearFilters() {
     clearPendingSearch()
-    suppressSearchSyncRef.current = true
+    const queryWillChange = queryRef.current.trim() !== '' || filtersRef.current.query !== ''
+    suppressSearchSyncRef.current = queryWillChange
+    filtersRef.current = defaultFilters
     queryRef.current = ''
     setQuery('')
     startNavigation(() => router.replace('/jobs', { scroll: false }))
