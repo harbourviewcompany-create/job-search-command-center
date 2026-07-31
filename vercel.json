@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
-      "internal-*": false
+      "internal-ui-remediation-20260731": false
     }
   }
 }
