@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - internal-ui-remediation-20260731
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
