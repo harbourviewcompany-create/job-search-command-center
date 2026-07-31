@@ -1,28 +1,28 @@
 # UI Remediation CI Verification
 
-- Source commit: `fb9138905def90483f922ea8bc00c1d3c5bfc623`
-- Workflow run: `30640867838`
+- Source commit: `8c49105b3fe3453910798a2e0a121c9b17ae9a5b`
+- Workflow run: `30640965601`
 - Event: `push`
-- Generated: `2026-07-31T14:58:59Z`
+- Generated: `2026-07-31T15:00:38Z`
 
 | Check | Exit code |
 |---|---:|
 | lockfile sync + npm ci | 0 |
 | npm run typecheck | 0 |
-| npm run lint | 1 |
+| npm run lint | 0 |
 | npm test | 0 |
-| npm run build | 1 |
+| npm run build | 0 |
 
 ## install log tail
 
 ```text
 $ npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
-up to date in 2s
+up to date in 833ms
 
 $ npm ci --no-audit --no-fund
 
-added 404 packages in 12s
+added 404 packages in 13s
 ```
 
 ## typecheck log tail
@@ -46,19 +46,7 @@ This information is used to shape Next.js' roadmap and prioritize features.
 You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
 https://nextjs.org/telemetry
 
-
-./src/app/dashboard/page.tsx
-64:57  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
-80:68  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
-112:43  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
-130:50  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
-162:37  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
-199:40  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
-
-./src/lib/apollo.ts
-72:11  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
-
-info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
+✔ No ESLint warnings or errors
 ```
 
 ## tests log tail
@@ -72,31 +60,31 @@ TAP version 13
 # Subtest: repairs UTF-8 text decoded as Windows-1252
 ok 1 - repairs UTF-8 text decoded as Windows-1252
   ---
-  duration_ms: 1.096932
+  duration_ms: 1.164361
   type: 'test'
   ...
 # Subtest: repairs Arabic mojibake visible in imported job locations
 ok 2 - repairs Arabic mojibake visible in imported job locations
   ---
-  duration_ms: 0.255237
+  duration_ms: 0.281027
   type: 'test'
   ...
 # Subtest: preserves valid international text
 ok 3 - preserves valid international text
   ---
-  duration_ms: 0.243135
+  duration_ms: 0.223078
   type: 'test'
   ...
 # Subtest: removes control characters and collapses whitespace
 ok 4 - removes control characters and collapses whitespace
   ---
-  duration_ms: 0.164527
+  duration_ms: 0.16069
   type: 'test'
   ...
 # Subtest: uses fallback for missing values
 ok 5 - uses fallback for missing values
   ---
-  duration_ms: 0.961859
+  duration_ms: 1.029238
   type: 'test'
   ...
 1..5
@@ -107,7 +95,7 @@ ok 5 - uses fallback for missing values
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 63.786109
+# duration_ms 65.083621
 ```
 
 ## build log tail
@@ -122,20 +110,34 @@ ok 5 - uses fallback for missing values
    Creating an optimized production build ...
  ✓ Compiled successfully
    Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/5) ...
+   Generating static pages (1/5) 
+   Generating static pages (2/5) 
+   Generating static pages (3/5) 
+ ✓ Generating static pages (5/5)
+   Finalizing page optimization ...
+   Collecting build traces ...
 
-Failed to compile.
+Route (app)                              Size     First Load JS
+┌ ○ /                                    145 B           106 kB
+├ ○ /_not-found                          979 B           106 kB
+├ ƒ /api/jobs/pull                       145 B           106 kB
+├ ƒ /applications                        1.36 kB         118 kB
+├ ƒ /applications/[id]                   3.88 kB         113 kB
+├ ƒ /contacts                            1.12 kB         107 kB
+├ ƒ /dashboard                           172 B           109 kB
+├ ƒ /jobs                                9.63 kB         126 kB
+├ ƒ /opportunities                       145 B           106 kB
+└ ƒ /settings                            1.21 kB         107 kB
++ First Load JS shared by all            105 kB
+  ├ chunks/4bd1b696-e45e92f545646ecc.js  52.9 kB
+  ├ chunks/517-f30518cc560ece48.js       50.6 kB
+  └ other shared chunks (total)          1.91 kB
 
-./src/app/dashboard/page.tsx
-64:57  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
-80:68  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
-112:43  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
-130:50  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
-162:37  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
-199:40  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
 
-./src/lib/apollo.ts
-72:11  Error: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
 
-info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
 ```
 
