@@ -21,3 +21,9 @@ test('removes control characters and collapses whitespace', () => {
 test('uses fallback for missing values', () => {
   assert.equal(normalizeDisplayText(null, 'Unknown company'), 'Unknown company')
 })
+
+test('repairMojibake always returns a string for arbitrary input', () => {
+  assert.equal(repairMojibake(42), '')
+  assert.equal(repairMojibake({ value: 'MontrÃ©al' }), '')
+  assert.equal(repairMojibake(false), '')
+})
