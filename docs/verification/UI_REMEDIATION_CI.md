@@ -1,9 +1,9 @@
 # UI Remediation CI Verification
 
-- Source commit: `c9d89368e611d2c447e2b7e73aca6b731a254be2`
-- Workflow run: `30643351840`
+- Source commit: `7b892c4b17b285962bed1f00c84a93afa4c10fe6`
+- Workflow run: `30643540663`
 - Event: `push`
-- Generated: `2026-07-31T15:33:47Z`
+- Generated: `2026-07-31T15:36:25Z`
 
 | Check | Exit code |
 |---|---:|
@@ -18,11 +18,11 @@
 ```text
 $ npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
-up to date in 728ms
+up to date in 814ms
 
 $ npm ci --no-audit --no-fund
 
-added 404 packages in 9s
+added 404 packages in 10s
 ```
 
 ## typecheck log tail
@@ -60,31 +60,31 @@ TAP version 13
 # Subtest: repairs UTF-8 text decoded as Windows-1252
 ok 1 - repairs UTF-8 text decoded as Windows-1252
   ---
-  duration_ms: 1.067526
+  duration_ms: 1.125416
   type: 'test'
   ...
 # Subtest: repairs Arabic mojibake visible in imported job locations
 ok 2 - repairs Arabic mojibake visible in imported job locations
   ---
-  duration_ms: 0.256744
+  duration_ms: 0.285905
   type: 'test'
   ...
 # Subtest: preserves valid international text
 ok 3 - preserves valid international text
   ---
-  duration_ms: 0.248111
+  duration_ms: 0.220052
   type: 'test'
   ...
 # Subtest: removes control characters and collapses whitespace
 ok 4 - removes control characters and collapses whitespace
   ---
-  duration_ms: 0.157866
+  duration_ms: 0.161482
   type: 'test'
   ...
 # Subtest: uses fallback for missing values
 ok 5 - uses fallback for missing values
   ---
-  duration_ms: 0.967196
+  duration_ms: 0.926405
   type: 'test'
   ...
 1..5
@@ -95,7 +95,7 @@ ok 5 - uses fallback for missing values
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 62.393762
+# duration_ms 60.952814
 ```
 
 ## build log tail
