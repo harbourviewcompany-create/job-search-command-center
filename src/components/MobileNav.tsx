@@ -3,27 +3,9 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import {
-  BriefcaseBusiness,
-  ContactRound,
-  DollarSign,
-  LayoutDashboard,
-  Menu,
-  Settings,
-  Target,
-  Trello,
-  X,
-} from 'lucide-react'
+import { Menu, Target, X } from 'lucide-react'
+import { primaryNavigation } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
-
-const navigation = [
-  { href: '/dashboard', label: "Today's actions", icon: LayoutDashboard },
-  { href: '/jobs', label: 'Jobs', icon: BriefcaseBusiness },
-  { href: '/applications', label: 'Pipeline', icon: Trello },
-  { href: '/opportunities', label: 'Cash plays', icon: DollarSign },
-  { href: '/contacts', label: 'Contacts', icon: ContactRound },
-  { href: '/settings', label: 'Settings', icon: Settings },
-]
 
 export function MobileNav() {
   const pathname = usePathname()
@@ -61,7 +43,7 @@ export function MobileNav() {
       {open && (
         <nav id="mobile-navigation" aria-label="Primary" className="border-t border-slate-200 bg-white px-3 py-3 shadow-lg">
           <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {navigation.map(({ href, label, icon: Icon }) => {
+            {primaryNavigation.map(({ href, label, icon: Icon }) => {
               const active = pathname === href || pathname.startsWith(`${href}/`)
               return (
                 <li key={href}>
