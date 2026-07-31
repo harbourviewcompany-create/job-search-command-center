@@ -6,43 +6,48 @@ import { RefreshCw } from 'lucide-react'
 
 export function PullJobsButton() {
   const [pending, startTransition] = useTransition()
-  const [message, setMessage] = useState<string | null>(null)
+  const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
   const router = useRouter()
 
   function handlePull() {
     setMessage(null)
     startTransition(async () => {
       try {
-        const res = await fetch('/api/jobs/pull', { method: 'POST' })
-        const data = await res.json()
-        if (!res.ok || data.ok === false) {
-          setMessage(data.error ?? 'Pull failed — check Adzuna keys and Edge Function')
+        const response = await fetch('/api/jobs/pull', { method: 'POST' })
+        const data = await response.json()
+
+        if (!response.ok || data.ok === false) {
+          setMessage({ tone: 'error', text: data.error ?? 'The job pull failed. Verify provider configuration.' })
           return
         }
-        setMessage(
-          `Pulled ${data.unique ?? 0} unique · ${data.inserted ?? 0} new · ${data.updated ?? 0} refreshed`
-        )
+
+        setMessage({
+          tone: 'success',
+          text: `${data.inserted ?? 0} new · ${data.updated ?? 0} refreshed`,
+        })
         router.refresh()
-      } catch (e) {
-        setMessage(String(e))
+      } catch (caughtError) {
+        setMessage({
+          tone: 'error',
+          text: caughtError instanceof Error ? caughtError.message : 'The job pull failed.',
+        })
       }
     })
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <button
-        type="button"
-        onClick={handlePull}
-        disabled={pending}
-        className="btn-primary"
-      >
-        <RefreshCw className={`h-4 w-4 ${pending ? 'animate-spin' : ''}`} />
-        {pending ? 'Pulling jobs…' : 'Pull jobs now'}
+    <div className="flex max-w-full flex-col items-stretch gap-2 sm:items-end">
+      <button type="button" onClick={handlePull} disabled={pending} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-black/20 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:opacity-60">
+        <RefreshCw className={`h-4 w-4 ${pending ? 'animate-spin' : ''}`} aria-hidden="true" />
+        {pending ? 'Pulling jobs…' : 'Pull latest jobs'}
       </button>
-      {message && (
-        <span className="text-xs text-slate-500">{message}</span>
-      )}
+      <div aria-live="polite" className="min-h-4 max-w-xs text-right">
+        {message && (
+          <p className={message.tone === 'error' ? 'break-words text-xs font-medium text-rose-300' : 'text-xs font-medium text-emerald-300'}>
+            {message.text}
+          </p>
+        )}
+      </div>
     </div>
   )
 }
