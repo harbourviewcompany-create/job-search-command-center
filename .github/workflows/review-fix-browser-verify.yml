@@ -1,0 +1,93 @@
+name: Review Fix Browser Verify
+
+on:
+  push:
+    branches:
+      - internal-ui-remediation-20260731
+    paths-ignore:
+      - docs/verification/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: review-fix-browser-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Pull unlock and clear-filter race
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: true
+      NEXT_TELEMETRY_DISABLED: 1
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.RUNTIME_SUPABASE_URL || secrets.NEXT_PUBLIC_SUPABASE_URL || vars.RUNTIME_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.RUNTIME_SUPABASE_ANON_KEY || secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || vars.RUNTIME_SUPABASE_ANON_KEY || vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      JOB_PULL_API_KEY: focused-review-${{ github.run_id }}-${{ github.run_attempt }}
+      RUNTIME_BASE_URL: http://127.0.0.1:3000
+      RUNTIME_EVIDENCE_DIR: qa/review-fixes
+
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate connected runtime configuration
+        shell: bash
+        run: |
+          test -n "$NEXT_PUBLIC_SUPABASE_URL"
+          test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY"
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install committed dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Install pinned Chromium runtime
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright@1.54.1
+          npx playwright@1.54.1 install --with-deps chromium
+
+      - name: Start production runtime
+        shell: bash
+        run: |
+          mkdir -p "$RUNTIME_EVIDENCE_DIR"
+          npm run start -- --hostname 127.0.0.1 --port 3000 > "$RUNTIME_EVIDENCE_DIR/server.log" 2>&1 &
+          echo $! > "$RUNTIME_EVIDENCE_DIR/server.pid"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "$RUNTIME_BASE_URL/jobs" >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNTIME_EVIDENCE_DIR/server.log"
+          exit 1
+
+      - name: Run focused browser verification
+        run: node tests/review-fix-browser-verification.mjs
+
+      - name: Stop production runtime
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNTIME_EVIDENCE_DIR/server.pid" ]; then
+            kill "$(cat "$RUNTIME_EVIDENCE_DIR/server.pid")" 2>/dev/null || true
+          fi
+
+      - name: Upload focused evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-fix-browser-evidence-${{ github.run_id }}
+          path: ${{ env.RUNTIME_EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 7
