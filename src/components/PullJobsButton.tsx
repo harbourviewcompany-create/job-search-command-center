@@ -5,28 +5,24 @@ import { useRouter } from 'next/navigation'
 import { RefreshCw } from 'lucide-react'
 
 interface Props {
-  authorizationToken: string | null
+  authorized: boolean
 }
 
-export function PullJobsButton({ authorizationToken }: Props) {
+export function PullJobsButton({ authorized }: Props) {
   const [pending, startTransition] = useTransition()
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
   const router = useRouter()
-  const configured = Boolean(authorizationToken)
 
   function handlePull() {
-    if (!authorizationToken) {
-      setMessage({ tone: 'error', text: 'Job pulling is not configured for this environment.' })
+    if (!authorized) {
+      setMessage({ tone: 'error', text: 'Sign in to run a manual job pull.' })
       return
     }
 
     setMessage(null)
     startTransition(async () => {
       try {
-        const response = await fetch('/api/jobs/pull', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${authorizationToken}` },
-        })
+        const response = await fetch('/api/jobs/pull', { method: 'POST' })
         const data = await response.json()
 
         if (!response.ok || data.ok === false) {
@@ -53,17 +49,17 @@ export function PullJobsButton({ authorizationToken }: Props) {
       <button
         type="button"
         onClick={handlePull}
-        disabled={pending || !configured}
-        aria-describedby={!configured ? 'job-pull-configuration-message' : undefined}
+        disabled={pending || !authorized}
+        aria-describedby={!authorized ? 'job-pull-authorization-message' : undefined}
         className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-black/20 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <RefreshCw className={`h-4 w-4 ${pending ? 'animate-spin' : ''}`} aria-hidden="true" />
         {pending ? 'Pulling jobs…' : 'Pull latest jobs'}
       </button>
       <div aria-live="polite" className="min-h-4 max-w-xs text-right">
-        {!configured && !message && (
-          <p id="job-pull-configuration-message" className="text-xs font-medium text-amber-200">
-            Configure JOB_PULL_API_KEY to enable manual pulls.
+        {!authorized && !message && (
+          <p id="job-pull-authorization-message" className="text-xs font-medium text-amber-200">
+            An authenticated Supabase session is required for manual pulls.
           </p>
         )}
         {message && (
