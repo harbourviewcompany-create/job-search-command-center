@@ -13,23 +13,40 @@ permissions:
 
 concurrency:
   group: runtime-browser-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   runtime-browser:
+    name: Deterministic connected-Supabase verification
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     env:
       CI: true
       NEXT_TELEMETRY_DISABLED: 1
-      NEXT_PUBLIC_SUPABASE_URL: https://zvxdgdkukjrrwamdpqrg.supabase.co
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2eGRnZGt1a2pycndhbWRwcXJnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNDMxNzUsImV4cCI6MjA5MjgxOTE3NX0.MEGWEsDpJO3964Ef2G2Cbo-Q5JKT46WB1xtlXE-ue5M
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.RUNTIME_SUPABASE_URL || secrets.NEXT_PUBLIC_SUPABASE_URL || vars.RUNTIME_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.RUNTIME_SUPABASE_ANON_KEY || secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || vars.RUNTIME_SUPABASE_ANON_KEY || vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      JOB_PULL_API_KEY: runtime-local-${{ github.run_id }}-${{ github.run_attempt }}
+      JOBS_PAGE_SIZE: 25
+      RUNTIME_RUN_TOKEN: ${{ github.run_id }}-${{ github.run_attempt }}
       RUNTIME_BASE_URL: http://127.0.0.1:3000
       RUNTIME_EVIDENCE_DIR: qa/runtime-browser
 
     steps:
-      - name: Checkout review branch
+      - name: Checkout review branch without persisted credentials
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate connected runtime configuration
+        id: config
+        shell: bash
+        run: |
+          if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ] || [ -z "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]; then
+            echo "Connected Supabase runtime variables are not configured." >&2
+            echo "exit_code=1" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "exit_code=0" >> "$GITHUB_OUTPUT"
 
       - name: Use Node.js 22
         uses: actions/setup-node@v4
@@ -37,7 +54,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install locked dependencies
+      - name: Install committed dependencies
         id: install
         shell: bash
         run: |
@@ -112,7 +129,7 @@ jobs:
           cat /tmp/build.log
           exit 0
 
-      - name: Install browser verification runtime
+      - name: Install pinned browser verification runtime
         id: browser_install
         shell: bash
         run: |
@@ -123,8 +140,8 @@ jobs:
           fi
           set +e
           {
-            npm install --no-save --package-lock=false --no-audit --no-fund playwright@1.54.1
-            npx playwright install --with-deps chromium webkit
+            npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright@1.54.1
+            npx playwright@1.54.1 install --with-deps chromium webkit
           } > /tmp/browser-install.log 2>&1
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
@@ -135,19 +152,19 @@ jobs:
         id: server
         shell: bash
         run: |
-          mkdir -p qa/runtime-browser
+          mkdir -p "$RUNTIME_EVIDENCE_DIR"
           if [ "${{ steps.browser_install.outputs.exit_code }}" != "0" ]; then
-            echo "Browser runtime installation failed; server skipped." | tee qa/runtime-browser/server.log
+            echo "Browser runtime installation failed; server skipped." | tee "$RUNTIME_EVIDENCE_DIR/server.log"
             echo "exit_code=125" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          npm run start -- --hostname 127.0.0.1 --port 3000 > qa/runtime-browser/server.log 2>&1 &
-          echo $! > qa/runtime-browser/server.pid
+          npm run start -- --hostname 127.0.0.1 --port 3000 > "$RUNTIME_EVIDENCE_DIR/server.log" 2>&1 &
+          echo $! > "$RUNTIME_EVIDENCE_DIR/server.pid"
 
           code=1
           for attempt in $(seq 1 60); do
-            if curl --fail --silent --show-error http://127.0.0.1:3000/jobs > /tmp/runtime-home.html; then
+            if curl --fail --silent --show-error "$RUNTIME_BASE_URL/jobs" > /tmp/runtime-home.html; then
               code=0
               break
             fi
@@ -156,11 +173,11 @@ jobs:
 
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" != "0" ]; then
-            cat qa/runtime-browser/server.log
+            cat "$RUNTIME_EVIDENCE_DIR/server.log"
           fi
           exit 0
 
-      - name: Run real-runtime browser verification
+      - name: Run deterministic real-runtime browser verification
         id: browser
         shell: bash
         run: |
@@ -171,63 +188,50 @@ jobs:
           fi
 
           set +e
-          node tests/runtime-browser-verification.mjs > /tmp/browser.log 2>&1 &
-          browser_pid=$!
-          code=124
-
-          for attempt in $(seq 1 900); do
-            if ! kill -0 "$browser_pid" 2>/dev/null; then
-              wait "$browser_pid"
-              code=$?
-              break
-            fi
-
-            if [ -f qa/runtime-browser/runtime-browser-evidence.json ]; then
-              sleep 2
-              kill "$browser_pid" 2>/dev/null || true
-              wait "$browser_pid" 2>/dev/null || true
-              node -e "const r=require('./qa/runtime-browser/runtime-browser-evidence.json'); process.exit((r.summary?.failed ?? 1) === 0 ? 0 : 1)"
-              code=$?
-              break
-            fi
-
-            sleep 1
-          done
-
-          if kill -0 "$browser_pid" 2>/dev/null; then
-            kill "$browser_pid" 2>/dev/null || true
-            wait "$browser_pid" 2>/dev/null || true
-          fi
-
+          timeout --signal=TERM --kill-after=30s 35m node tests/runtime-browser-verification.mjs > /tmp/browser.log 2>&1
+          code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           cat /tmp/browser.log
+          exit 0
+
+      - name: Independently clean runtime fixtures
+        if: always()
+        id: cleanup
+        shell: bash
+        run: |
+          set +e
+          node tests/runtime-browser-cleanup.mjs > /tmp/cleanup.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/cleanup.log
           exit 0
 
       - name: Stop runtime server
         if: always()
         shell: bash
         run: |
-          if [ -f qa/runtime-browser/server.pid ]; then
-            kill "$(cat qa/runtime-browser/server.pid)" 2>/dev/null || true
+          if [ -f "$RUNTIME_EVIDENCE_DIR/server.pid" ]; then
+            kill "$(cat "$RUNTIME_EVIDENCE_DIR/server.pid")" 2>/dev/null || true
           fi
 
       - name: Assemble verification report
         if: always()
         shell: bash
         run: |
-          mkdir -p docs/verification qa/runtime-browser
+          mkdir -p "$RUNTIME_EVIDENCE_DIR"
           {
-            echo "# Final Real-Runtime Browser Verification"
+            echo "# Final Deterministic Runtime Verification"
             echo
             echo "- Source commit: \`${GITHUB_SHA}\`"
             echo "- Workflow run: \`${GITHUB_RUN_ID}\`"
-            echo "- Connected Supabase project: \`zvxdgdkukjrrwamdpqrg\`"
+            echo "- Connected Supabase configuration source: GitHub Actions secrets/variables"
             echo "- Deployment performed: \`no\`"
             echo "- Merge performed: \`no\`"
-            echo "- Edge Function invocation credential: \`application publishable JWT\`"
+            echo "- Fixture cleanup exit: \`${{ steps.cleanup.outputs.exit_code }}\`"
             echo
             echo "| Gate | Exit code |"
             echo "|---|---:|"
+            echo "| configuration | ${{ steps.config.outputs.exit_code }} |"
             echo "| npm ci | ${{ steps.install.outputs.exit_code }} |"
             echo "| npm run typecheck | ${{ steps.typecheck.outputs.exit_code }} |"
             echo "| npm run lint | ${{ steps.lint.outputs.exit_code }} |"
@@ -236,48 +240,44 @@ jobs:
             echo "| browser runtime install | ${{ steps.browser_install.outputs.exit_code }} |"
             echo "| production server | ${{ steps.server.outputs.exit_code }} |"
             echo "| browser verification | ${{ steps.browser.outputs.exit_code }} |"
+            echo "| independent cleanup | ${{ steps.cleanup.outputs.exit_code }} |"
             echo
-            if [ -f qa/runtime-browser/RUNTIME_BROWSER_VERIFICATION.md ]; then
-              cat qa/runtime-browser/RUNTIME_BROWSER_VERIFICATION.md
+            if [ -f "$RUNTIME_EVIDENCE_DIR/RUNTIME_BROWSER_VERIFICATION.md" ]; then
+              cat "$RUNTIME_EVIDENCE_DIR/RUNTIME_BROWSER_VERIFICATION.md"
             else
               echo "Browser evidence report was not produced."
-              echo
-              echo '```text'
-              cat /tmp/browser.log 2>/dev/null || true
-              echo '```'
             fi
             echo
             echo "## Command log tails"
-            for entry in install typecheck lint tests build browser-install browser; do
+            for entry in install typecheck lint tests build browser-install browser cleanup; do
               echo
               echo "### ${entry}"
               echo '```text'
-              tail -n 80 "/tmp/${entry}.log" 2>/dev/null || true
+              tail -n 100 "/tmp/${entry}.log" 2>/dev/null || true
               echo '```'
             done
             echo
             echo "### Runtime server"
             echo '```text'
-            tail -n 120 qa/runtime-browser/server.log 2>/dev/null || true
+            tail -n 120 "$RUNTIME_EVIDENCE_DIR/server.log" 2>/dev/null || true
             echo '```'
-          } > docs/verification/RUNTIME_BROWSER_VERIFICATION.md
+          } > "$RUNTIME_EVIDENCE_DIR/FINAL_RUNTIME_VERIFICATION.md"
 
       - name: Upload runtime screenshots and evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: runtime-browser-evidence-${{ github.run_id }}
-          path: |
-            qa/runtime-browser
-            docs/verification/RUNTIME_BROWSER_VERIFICATION.md
-          if-no-files-found: warn
-          retention-days: 30
+          path: ${{ env.RUNTIME_EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Enforce final runtime gate
         if: always()
         shell: bash
         run: |
           codes=(
+            "${{ steps.config.outputs.exit_code }}"
             "${{ steps.install.outputs.exit_code }}"
             "${{ steps.typecheck.outputs.exit_code }}"
             "${{ steps.lint.outputs.exit_code }}"
@@ -286,6 +286,7 @@ jobs:
             "${{ steps.browser_install.outputs.exit_code }}"
             "${{ steps.server.outputs.exit_code }}"
             "${{ steps.browser.outputs.exit_code }}"
+            "${{ steps.cleanup.outputs.exit_code }}"
           )
           for code in "${codes[@]}"; do
             if [ -z "$code" ] || [ "$code" != "0" ]; then
