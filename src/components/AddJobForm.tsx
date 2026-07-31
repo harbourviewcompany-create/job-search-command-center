@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
 import { addManualJob } from '@/app/jobs/actions'
 
@@ -8,6 +9,7 @@ export function AddJobForm() {
   const formRef = useRef<HTMLFormElement>(null)
   const [pending, startTransition] = useTransition()
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
+  const router = useRouter()
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -19,6 +21,7 @@ export function AddJobForm() {
         await addManualJob(formData)
         formRef.current?.reset()
         setMessage({ tone: 'success', text: 'Job added to the triage queue.' })
+        router.refresh()
       } catch (caughtError) {
         setMessage({
           tone: 'error',
