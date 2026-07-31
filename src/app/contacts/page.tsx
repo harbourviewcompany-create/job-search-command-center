@@ -1,8 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { formatDate } from '@/lib/utils'
 import { AddContactForm } from '@/components/AddContactForm'
+import type { Company, Contact } from '@/types/database'
 
 export const dynamic = 'force-dynamic'
+
+type ContactWithCompany = Contact & {
+  companies: Pick<Company, 'name'> | null
+}
 
 export default async function ContactsPage() {
   const supabase = await createClient()
@@ -11,6 +16,8 @@ export default async function ContactsPage() {
     .from('contacts')
     .select('*, companies(name)')
     .order('created_at', { ascending: false })
+
+  const typedContacts = (contacts ?? []) as ContactWithCompany[]
 
   return (
     <div className="space-y-6">
@@ -37,50 +44,50 @@ export default async function ContactsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {(contacts ?? []).length === 0 && (
+            {typedContacts.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-5 py-12 text-center text-slate-400">
                   No contacts yet. Add one above or import via Apollo.
                 </td>
               </tr>
             )}
-            {(contacts ?? []).map((c: any) => (
-              <tr key={c.id} className="hover:bg-slate-50/50">
+            {typedContacts.map((contact) => (
+              <tr key={contact.id} className="hover:bg-slate-50/50">
                 <td className="px-5 py-3 font-medium">
-                  {c.linkedin_url ? (
+                  {contact.linkedin_url ? (
                     <a
-                      href={c.linkedin_url}
+                      href={contact.linkedin_url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-brand-600 hover:underline"
                     >
-                      {c.name}
+                      {contact.name}
                     </a>
                   ) : (
-                    c.name
+                    contact.name
                   )}
                 </td>
-                <td className="px-5 py-3 text-slate-600">{c.title ?? '—'}</td>
+                <td className="px-5 py-3 text-slate-600">{contact.title ?? '—'}</td>
                 <td className="px-5 py-3 text-slate-600">
-                  {c.companies?.name ?? '—'}
+                  {contact.companies?.name ?? '—'}
                 </td>
                 <td className="px-5 py-3">
-                  {c.email ? (
+                  {contact.email ? (
                     <a
-                      href={`mailto:${c.email}`}
+                      href={`mailto:${contact.email}`}
                       className="text-brand-600 hover:underline"
                     >
-                      {c.email}
+                      {contact.email}
                     </a>
                   ) : (
                     '—'
                   )}
                 </td>
                 <td className="px-5 py-3 text-slate-400 capitalize">
-                  {c.source ?? '—'}
+                  {contact.source ?? '—'}
                 </td>
                 <td className="px-5 py-3 text-slate-400">
-                  {formatDate(c.created_at)}
+                  {formatDate(contact.created_at)}
                 </td>
               </tr>
             ))}
