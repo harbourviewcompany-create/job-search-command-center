@@ -1,9 +1,9 @@
 # UI Remediation CI Verification
 
-- Source commit: `8c49105b3fe3453910798a2e0a121c9b17ae9a5b`
-- Workflow run: `30640965601`
+- Source commit: `5f4b59061547ba89f0d9d2a06a01d1c800f609fa`
+- Workflow run: `30642184437`
 - Event: `push`
-- Generated: `2026-07-31T15:00:38Z`
+- Generated: `2026-07-31T15:17:33Z`
 
 | Check | Exit code |
 |---|---:|
@@ -18,11 +18,11 @@
 ```text
 $ npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
-up to date in 833ms
+up to date in 2s
 
 $ npm ci --no-audit --no-fund
 
-added 404 packages in 13s
+added 404 packages in 11s
 ```
 
 ## typecheck log tail
@@ -60,31 +60,31 @@ TAP version 13
 # Subtest: repairs UTF-8 text decoded as Windows-1252
 ok 1 - repairs UTF-8 text decoded as Windows-1252
   ---
-  duration_ms: 1.164361
+  duration_ms: 1.092122
   type: 'test'
   ...
 # Subtest: repairs Arabic mojibake visible in imported job locations
 ok 2 - repairs Arabic mojibake visible in imported job locations
   ---
-  duration_ms: 0.281027
+  duration_ms: 0.251876
   type: 'test'
   ...
 # Subtest: preserves valid international text
 ok 3 - preserves valid international text
   ---
-  duration_ms: 0.223078
+  duration_ms: 0.244241
   type: 'test'
   ...
 # Subtest: removes control characters and collapses whitespace
 ok 4 - removes control characters and collapses whitespace
   ---
-  duration_ms: 0.16069
+  duration_ms: 0.167285
   type: 'test'
   ...
 # Subtest: uses fallback for missing values
 ok 5 - uses fallback for missing values
   ---
-  duration_ms: 1.029238
+  duration_ms: 0.930356
   type: 'test'
   ...
 1..5
@@ -95,7 +95,7 @@ ok 5 - uses fallback for missing values
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 65.083621
+# duration_ms 61.17812
 ```
 
 ## build log tail
@@ -108,6 +108,12 @@ ok 5 - uses fallback for missing values
    ▲ Next.js 15.1.12
 
    Creating an optimized production build ...
+request to https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap failed, reason: 
+
+Retrying 1/3...
+request to https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap failed, reason: 
+
+Retrying 2/3...
  ✓ Compiled successfully
    Linting and checking validity of types ...
    Collecting page data ...
