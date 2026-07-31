@@ -1,9 +1,16 @@
 import { createClient as createFunctionClient } from '@supabase/supabase-js'
-import { NextResponse } from 'next/server'
-import { verifyJobPullServiceKey } from '@/lib/job-pull-auth'
+import { NextRequest, NextResponse } from 'next/server'
+import {
+  JOB_PULL_ACCESS_COOKIE,
+  verifyJobPullAccessToken,
+  verifyJobPullServiceKey,
+} from '@/lib/job-pull-auth'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
+export const maxDuration = 180
+
+const FUNCTION_TIMEOUT_MS = 180_000
 
 function bearerToken(request: Request) {
   const authorization = request.headers.get('authorization')
@@ -15,8 +22,11 @@ function functionErrorStatus(error: { name?: string }) {
   return error.name === 'FunctionsFetchError' ? 504 : 502
 }
 
-async function isAuthorized(request: Request) {
+async function isAuthorized(request: NextRequest) {
   if (verifyJobPullServiceKey(bearerToken(request))) return true
+
+  const accessToken = request.cookies.get(JOB_PULL_ACCESS_COOKIE)?.value ?? null
+  if (verifyJobPullAccessToken(accessToken)) return true
 
   const sessionClient = await createServerClient()
   const { data, error } = await sessionClient.auth.getUser()
@@ -24,11 +34,11 @@ async function isAuthorized(request: Request) {
 }
 
 /**
- * Authenticated or service-authorized manual trigger for the scheduled job pull.
- * Browser callers must have a valid Supabase user session. CI and trusted
- * operators may use JOB_PULL_API_KEY as a server-side bearer credential.
+ * Authenticated, unlocked, or service-authorized manual trigger for the
+ * scheduled job pull. Browser unlocks use a signed HttpOnly cookie; CI and
+ * trusted operators may use JOB_PULL_API_KEY as a server-side bearer.
  */
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   if (!(await isAuthorized(request))) {
     return NextResponse.json(
       { ok: false, error: 'Unauthorized job-pull request' },
@@ -54,7 +64,7 @@ export async function POST(request: Request) {
 
   const { data, error } = await functionClient.functions.invoke('daily-job-pull', {
     body: { source: 'manual', triggered_at: new Date().toISOString() },
-    timeout: 20_000,
+    timeout: FUNCTION_TIMEOUT_MS,
   })
 
   if (error) {
