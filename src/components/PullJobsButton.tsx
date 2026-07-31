@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { RefreshCw } from 'lucide-react'
 
 interface Props {
-  authorizationToken: 'session' | null
+  authorizationToken: string | null
 }
 
 export function PullJobsButton({ authorizationToken }: Props) {
