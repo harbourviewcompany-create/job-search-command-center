@@ -2,25 +2,9 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import {
-  BriefcaseBusiness,
-  ContactRound,
-  DollarSign,
-  LayoutDashboard,
-  Settings,
-  Target,
-  Trello,
-} from 'lucide-react'
+import { Target } from 'lucide-react'
+import { primaryNavigation } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
-
-const navigation = [
-  { href: '/dashboard', label: "Today's actions", icon: LayoutDashboard },
-  { href: '/jobs', label: 'Jobs', icon: BriefcaseBusiness },
-  { href: '/applications', label: 'Pipeline', icon: Trello },
-  { href: '/opportunities', label: 'Cash plays', icon: DollarSign },
-  { href: '/contacts', label: 'Contacts', icon: ContactRound },
-  { href: '/settings', label: 'Settings', icon: Settings },
-]
 
 export function Sidebar() {
   const pathname = usePathname()
@@ -38,7 +22,7 @@ export function Sidebar() {
       </div>
 
       <nav aria-label="Primary" className="flex flex-1 flex-col gap-1 p-3">
-        {navigation.map(({ href, label, icon: Icon }) => {
+        {primaryNavigation.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`)
           return (
             <Link
