@@ -1,5 +1,4 @@
 import { JobsCommandCenter } from '@/components/JobsCommandCenter'
-import { createJobPullToken } from '@/lib/job-pull-auth'
 import { createClient } from '@/lib/supabase/server'
 import type { JobWithCompany } from '@/types/database'
 
@@ -33,6 +32,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const to = from + pageSize - 1
 
   const [
+    authResult,
     jobsResult,
     searchSettingResult,
     appliedResult,
@@ -42,6 +42,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
     interestedCountResult,
     dismissedCountResult,
   ] = await Promise.all([
+    supabase.auth.getUser(),
     supabase
       .from('jobs')
       .select('*, companies(*)', { count: 'exact' })
@@ -105,7 +106,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         offers: offerResult.count ?? 0,
       }}
       pagination={{ page, pageSize, total: totalJobs, totalPages }}
-      pullAuthorizationToken={createJobPullToken()}
+      pullAuthorized={Boolean(authResult.data.user)}
       terms={terms}
       locations={locations}
       loadError={errors.length > 0 ? Array.from(new Set(errors)).join(' ') : null}
