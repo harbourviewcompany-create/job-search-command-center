@@ -1,0 +1,276 @@
+name: Runtime Browser Verify
+
+on:
+  push:
+    branches:
+      - internal-ui-remediation-20260731
+    paths-ignore:
+      - docs/verification/RUNTIME_BROWSER_VERIFICATION.md
+
+permissions:
+  contents: write
+
+jobs:
+  runtime-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: true
+      NEXT_TELEMETRY_DISABLED: 1
+      NEXT_PUBLIC_SUPABASE_URL: https://zvxdgdkukjrrwamdpqrg.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2eGRnZGt1a2pycndhbWRwcXJnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNDMxNzUsImV4cCI6MjA5MjgxOTE3NX0.MEGWEsDpJO3964Ef2G2Cbo-Q5JKT46WB1xtlXE-ue5M
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      RUNTIME_BASE_URL: http://127.0.0.1:3000
+      RUNTIME_EVIDENCE_DIR: qa/runtime-browser
+
+    steps:
+      - name: Checkout review branch
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        id: install
+        shell: bash
+        run: |
+          set +e
+          npm ci --no-audit --no-fund > /tmp/install.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/install.log
+          exit 0
+
+      - name: Typecheck
+        id: typecheck
+        shell: bash
+        run: |
+          if [ "${{ steps.install.outputs.exit_code }}" != "0" ]; then
+            echo "Install failed; typecheck skipped." | tee /tmp/typecheck.log
+            echo "exit_code=125" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          npm run typecheck > /tmp/typecheck.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/typecheck.log
+          exit 0
+
+      - name: Lint
+        id: lint
+        shell: bash
+        run: |
+          if [ "${{ steps.install.outputs.exit_code }}" != "0" ]; then
+            echo "Install failed; lint skipped." | tee /tmp/lint.log
+            echo "exit_code=125" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          npm run lint > /tmp/lint.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/lint.log
+          exit 0
+
+      - name: Unit tests
+        id: tests
+        shell: bash
+        run: |
+          if [ "${{ steps.install.outputs.exit_code }}" != "0" ]; then
+            echo "Install failed; tests skipped." | tee /tmp/tests.log
+            echo "exit_code=125" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          npm test > /tmp/tests.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/tests.log
+          exit 0
+
+      - name: Production build
+        id: build
+        shell: bash
+        run: |
+          if [ "${{ steps.install.outputs.exit_code }}" != "0" ]; then
+            echo "Install failed; build skipped." | tee /tmp/build.log
+            echo "exit_code=125" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          npm run build > /tmp/build.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/build.log
+          exit 0
+
+      - name: Install browser verification runtime
+        id: browser_install
+        shell: bash
+        run: |
+          if [ "${{ steps.build.outputs.exit_code }}" != "0" ]; then
+            echo "Build failed; browser installation skipped." | tee /tmp/browser-install.log
+            echo "exit_code=125" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          {
+            npm install --no-save --package-lock=false --no-audit --no-fund playwright@1.54.1
+            npx playwright install --with-deps chromium webkit
+          } > /tmp/browser-install.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          tail -n 120 /tmp/browser-install.log
+          exit 0
+
+      - name: Start production runtime
+        id: server
+        shell: bash
+        run: |
+          mkdir -p qa/runtime-browser
+          if [ "${{ steps.browser_install.outputs.exit_code }}" != "0" ]; then
+            echo "Browser runtime installation failed; server skipped." | tee qa/runtime-browser/server.log
+            echo "exit_code=125" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          npm run start -- --hostname 127.0.0.1 --port 3000 > qa/runtime-browser/server.log 2>&1 &
+          echo $! > qa/runtime-browser/server.pid
+
+          code=1
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:3000/jobs > /tmp/runtime-home.html; then
+              code=0
+              break
+            fi
+            sleep 1
+          done
+
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" != "0" ]; then
+            cat qa/runtime-browser/server.log
+          fi
+          exit 0
+
+      - name: Run real-runtime browser verification
+        id: browser
+        shell: bash
+        run: |
+          if [ "${{ steps.server.outputs.exit_code }}" != "0" ]; then
+            echo "Runtime server failed; browser verification skipped." | tee /tmp/browser.log
+            echo "exit_code=125" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          set +e
+          node tests/runtime-browser-verification.mjs > /tmp/browser.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/browser.log
+          exit 0
+
+      - name: Stop runtime server
+        if: always()
+        shell: bash
+        run: |
+          if [ -f qa/runtime-browser/server.pid ]; then
+            kill "$(cat qa/runtime-browser/server.pid)" 2>/dev/null || true
+          fi
+
+      - name: Assemble branch verification report
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p docs/verification qa/runtime-browser
+          {
+            echo "# Final Real-Runtime Browser Verification"
+            echo
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo "- Workflow run: \`${GITHUB_RUN_ID}\`"
+            echo "- Connected Supabase project: \`zvxdgdkukjrrwamdpqrg\`"
+            echo "- Deployment performed: \`no\`"
+            echo "- Merge performed: \`no\`"
+            echo "- Service-role secret available to runtime: \`$([ -n \"${SUPABASE_SERVICE_ROLE_KEY}\" ] && echo yes || echo no)\`"
+            echo
+            echo "| Gate | Exit code |"
+            echo "|---|---:|"
+            echo "| npm ci | ${{ steps.install.outputs.exit_code }} |"
+            echo "| npm run typecheck | ${{ steps.typecheck.outputs.exit_code }} |"
+            echo "| npm run lint | ${{ steps.lint.outputs.exit_code }} |"
+            echo "| npm test | ${{ steps.tests.outputs.exit_code }} |"
+            echo "| npm run build | ${{ steps.build.outputs.exit_code }} |"
+            echo "| browser runtime install | ${{ steps.browser_install.outputs.exit_code }} |"
+            echo "| production server | ${{ steps.server.outputs.exit_code }} |"
+            echo "| browser verification | ${{ steps.browser.outputs.exit_code }} |"
+            echo
+            if [ -f qa/runtime-browser/RUNTIME_BROWSER_VERIFICATION.md ]; then
+              cat qa/runtime-browser/RUNTIME_BROWSER_VERIFICATION.md
+            else
+              echo "Browser evidence report was not produced."
+              echo
+              echo '```text'
+              cat /tmp/browser.log 2>/dev/null || true
+              echo '```'
+            fi
+            echo
+            echo "## Command log tails"
+            for entry in install typecheck lint tests build browser-install browser; do
+              echo
+              echo "### ${entry}"
+              echo '```text'
+              tail -n 80 "/tmp/${entry}.log" 2>/dev/null || true
+              echo '```'
+            done
+            echo
+            echo "### Runtime server"
+            echo '```text'
+            tail -n 120 qa/runtime-browser/server.log 2>/dev/null || true
+            echo '```'
+          } > docs/verification/RUNTIME_BROWSER_VERIFICATION.md
+
+      - name: Upload runtime screenshots and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-browser-evidence-${{ github.run_id }}
+          path: |
+            qa/runtime-browser
+            docs/verification/RUNTIME_BROWSER_VERIFICATION.md
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Commit verification report to review branch
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/verification/RUNTIME_BROWSER_VERIFICATION.md
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: record runtime browser verification [skip ci]"
+            git push origin "HEAD:internal-ui-remediation-20260731"
+          fi
+
+      - name: Enforce final runtime gate
+        if: always()
+        shell: bash
+        run: |
+          codes=(
+            "${{ steps.install.outputs.exit_code }}"
+            "${{ steps.typecheck.outputs.exit_code }}"
+            "${{ steps.lint.outputs.exit_code }}"
+            "${{ steps.tests.outputs.exit_code }}"
+            "${{ steps.build.outputs.exit_code }}"
+            "${{ steps.browser_install.outputs.exit_code }}"
+            "${{ steps.server.outputs.exit_code }}"
+            "${{ steps.browser.outputs.exit_code }}"
+          )
+          for code in "${codes[@]}"; do
+            if [ -z "$code" ] || [ "$code" != "0" ]; then
+              exit 1
+            fi
+          done
