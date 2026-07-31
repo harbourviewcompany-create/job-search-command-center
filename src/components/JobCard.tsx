@@ -14,8 +14,9 @@ import {
   X,
 } from 'lucide-react'
 import { updateJobStatus } from '@/app/jobs/actions'
-import { cn, formatDate } from '@/lib/utils'
+import { formatSource, getWorkArrangementLabel } from '@/lib/jobs'
 import { normalizeDisplayText } from '@/lib/text.mjs'
+import { cn, formatDate } from '@/lib/utils'
 import type { JobStatus, JobWithCompany } from '@/types/database'
 
 interface Props {
@@ -33,19 +34,6 @@ const statusOptions: Array<{
   { value: 'dismissed', label: 'Dismiss', icon: X },
 ]
 
-function formatSource(source: string) {
-  if (source.toLowerCase() === 'remoteok') return 'Remote OK'
-  if (source.toLowerCase() === 'linkedin') return 'LinkedIn'
-  return source.charAt(0).toUpperCase() + source.slice(1)
-}
-
-function getWorkArrangement(job: JobWithCompany) {
-  const descriptor = `${job.location ?? ''} ${job.job_type ?? ''}`.toLowerCase()
-  if (descriptor.includes('hybrid')) return 'Hybrid'
-  if (job.remote || descriptor.includes('remote')) return 'Remote'
-  return 'Location-based'
-}
-
 function statusLabel(status: JobStatus) {
   if (status === 'interested') return 'Interested'
   if (status === 'dismissed') return 'Dismissed'
@@ -59,7 +47,7 @@ export function JobCard({ job, onStatusChange }: Props) {
   const company = normalizeDisplayText(job.companies?.name, 'Unknown company')
   const location = normalizeDisplayText(job.location, 'Location not listed')
   const description = normalizeDisplayText(job.description)
-  const arrangement = getWorkArrangement(job)
+  const arrangement = getWorkArrangementLabel(job)
 
   function setStatus(status: JobStatus) {
     if (status === job.status || pending) return
@@ -77,6 +65,7 @@ export function JobCard({ job, onStatusChange }: Props) {
 
   return (
     <article
+      data-job-id={job.id}
       className={cn(
         'card group flex h-full min-w-0 flex-col overflow-hidden transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_14px_36px_rgba(15,23,42,0.08)]',
         pending && 'opacity-70'
@@ -88,6 +77,7 @@ export function JobCard({ job, onStatusChange }: Props) {
           <div className="min-w-0 flex-1">
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span
+                data-job-status
                 className={cn(
                   'badge',
                   job.status === 'interested' && 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200',
@@ -98,17 +88,17 @@ export function JobCard({ job, onStatusChange }: Props) {
                 {statusLabel(job.status)}
               </span>
               {job.fit_score != null && (
-                <span className="badge bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200">
+                <span data-job-fit-score={job.fit_score} className="badge bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200">
                   {job.fit_score}% fit
                 </span>
               )}
             </div>
-            <h2 className="break-words text-lg font-semibold leading-6 tracking-tight text-slate-950 [overflow-wrap:anywhere] sm:text-xl">
+            <h2 data-job-title className="break-words text-lg font-semibold leading-6 tracking-tight text-slate-950 [overflow-wrap:anywhere] sm:text-xl">
               {title}
             </h2>
             <p className="mt-1 flex min-w-0 items-center gap-1.5 text-sm font-medium text-slate-600">
               <Building2 className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
-              <span className="break-words [overflow-wrap:anywhere]">{company}</span>
+              <span data-job-company className="break-words [overflow-wrap:anywhere]">{company}</span>
             </p>
           </div>
 
@@ -130,28 +120,28 @@ export function JobCard({ job, onStatusChange }: Props) {
             <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
             <div className="min-w-0">
               <dt className="sr-only">Location</dt>
-              <dd className="break-words [overflow-wrap:anywhere]">{location}</dd>
+              <dd data-job-metadata="location" className="break-words [overflow-wrap:anywhere]">{location}</dd>
             </div>
           </div>
           <div className="flex items-start gap-2">
             <Laptop className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
             <div>
               <dt className="sr-only">Work arrangement</dt>
-              <dd>{arrangement}</dd>
+              <dd data-job-metadata="arrangement">{arrangement}</dd>
             </div>
           </div>
           <div className="flex items-start gap-2">
             <Globe2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
             <div>
               <dt className="sr-only">Source</dt>
-              <dd>{formatSource(job.source)}</dd>
+              <dd data-job-metadata="source">{formatSource(job.source)}</dd>
             </div>
           </div>
           <div className="flex items-start gap-2">
             <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
             <div>
               <dt className="sr-only">Posting date</dt>
-              <dd>{job.posted_at ? `Posted ${formatDate(job.posted_at)}` : `Added ${formatDate(job.fetched_at)}`}</dd>
+              <dd data-job-metadata="date">{job.posted_at ? `Posted ${formatDate(job.posted_at)}` : `Added ${formatDate(job.fetched_at)}`}</dd>
             </div>
           </div>
           {job.job_type && (
@@ -159,7 +149,7 @@ export function JobCard({ job, onStatusChange }: Props) {
               <BriefcaseBusiness className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
               <div>
                 <dt className="sr-only">Job type</dt>
-                <dd>{normalizeDisplayText(job.job_type)}</dd>
+                <dd data-job-metadata="job-type">{normalizeDisplayText(job.job_type)}</dd>
               </div>
             </div>
           )}
@@ -167,8 +157,8 @@ export function JobCard({ job, onStatusChange }: Props) {
 
         {Array.isArray(job.fit_reasons) && job.fit_reasons.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2" aria-label="Fit reasons">
-            {job.fit_reasons.slice(0, 3).map((reason) => (
-              <span key={reason} className="badge max-w-full bg-slate-100 text-slate-600">
+            {job.fit_reasons.slice(0, 3).map((reason, index) => (
+              <span key={`${reason}-${index}`} className="badge max-w-full bg-slate-100 text-slate-600">
                 <span className="truncate">{normalizeDisplayText(reason)}</span>
               </span>
             ))}
