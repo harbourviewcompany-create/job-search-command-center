@@ -1,6 +1,7 @@
-import { createClient } from '@/lib/supabase/server'
-import { formatDate } from '@/lib/utils'
 import { AddContactForm } from '@/components/AddContactForm'
+import { createClient } from '@/lib/supabase/server'
+import { normalizeDisplayText } from '@/lib/text.mjs'
+import { formatDate } from '@/lib/utils'
 import type { Company, Contact } from '@/types/database'
 
 export const dynamic = 'force-dynamic'
@@ -31,8 +32,8 @@ export default async function ContactsPage() {
 
       <AddContactForm />
 
-      <div className="card overflow-hidden">
-        <table className="w-full text-left text-sm">
+      <div className="card overflow-x-auto">
+        <table className="w-full min-w-[760px] text-left text-sm">
           <thead className="border-b border-slate-100 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-5 py-3 font-medium">Name</th>
@@ -51,46 +52,49 @@ export default async function ContactsPage() {
                 </td>
               </tr>
             )}
-            {typedContacts.map((contact) => (
-              <tr key={contact.id} className="hover:bg-slate-50/50">
-                <td className="px-5 py-3 font-medium">
-                  {contact.linkedin_url ? (
-                    <a
-                      href={contact.linkedin_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-brand-600 hover:underline"
-                    >
-                      {contact.name}
-                    </a>
-                  ) : (
-                    contact.name
-                  )}
-                </td>
-                <td className="px-5 py-3 text-slate-600">{contact.title ?? '—'}</td>
-                <td className="px-5 py-3 text-slate-600">
-                  {contact.companies?.name ?? '—'}
-                </td>
-                <td className="px-5 py-3">
-                  {contact.email ? (
-                    <a
-                      href={`mailto:${contact.email}`}
-                      className="text-brand-600 hover:underline"
-                    >
-                      {contact.email}
-                    </a>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                <td className="px-5 py-3 text-slate-400 capitalize">
-                  {contact.source ?? '—'}
-                </td>
-                <td className="px-5 py-3 text-slate-400">
-                  {formatDate(contact.created_at)}
-                </td>
-              </tr>
-            ))}
+            {typedContacts.map((contact) => {
+              const name = normalizeDisplayText(contact.name, 'Unknown contact')
+              const title = normalizeDisplayText(contact.title, '—')
+              const company = normalizeDisplayText(contact.companies?.name, '—')
+              const source = normalizeDisplayText(contact.source, '—')
+
+              return (
+                <tr key={contact.id} className="hover:bg-slate-50/50">
+                  <td className="px-5 py-3 font-medium">
+                    {contact.linkedin_url ? (
+                      <a
+                        href={contact.linkedin_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-brand-600 hover:underline"
+                      >
+                        {name}
+                      </a>
+                    ) : (
+                      name
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-slate-600">{title}</td>
+                  <td className="px-5 py-3 text-slate-600">{company}</td>
+                  <td className="px-5 py-3">
+                    {contact.email ? (
+                      <a
+                        href={`mailto:${contact.email}`}
+                        className="text-brand-600 hover:underline"
+                      >
+                        {contact.email}
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-slate-400 capitalize">{source}</td>
+                  <td className="px-5 py-3 text-slate-400">
+                    {formatDate(contact.created_at)}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
