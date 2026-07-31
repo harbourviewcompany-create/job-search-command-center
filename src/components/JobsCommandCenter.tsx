@@ -61,6 +61,20 @@ function matchesArrangement(job: JobWithCompany, arrangement: ArrangementFilter)
   return !job.remote && !isHybrid(job)
 }
 
+function compareCompanies(left: JobWithCompany, right: JobWithCompany) {
+  const leftCompany = normalizeDisplayText(left.companies?.name)
+  const rightCompany = normalizeDisplayText(right.companies?.name)
+
+  if (!leftCompany && !rightCompany) return 0
+  if (!leftCompany) return 1
+  if (!rightCompany) return -1
+
+  return leftCompany.localeCompare(rightCompany, undefined, {
+    sensitivity: 'base',
+    numeric: true,
+  })
+}
+
 const metricCards = [
   { key: 'triage', label: 'To triage', icon: CircleDot, tone: 'text-blue-700 bg-blue-50 ring-blue-200' },
   { key: 'interested', label: 'Interested', icon: CheckCircle2, tone: 'text-emerald-700 bg-emerald-50 ring-emerald-200' },
@@ -111,11 +125,7 @@ export function JobsCommandCenter({ initialJobs, metrics, terms, locations, load
       .sort((left, right) => {
         if (sort === 'newest') return jobTimestamp(right) - jobTimestamp(left)
         if (sort === 'oldest') return jobTimestamp(left) - jobTimestamp(right)
-        if (sort === 'company') {
-          return normalizeDisplayText(left.companies?.name).localeCompare(
-            normalizeDisplayText(right.companies?.name)
-          )
-        }
+        if (sort === 'company') return compareCompanies(left, right)
         return (right.fit_score ?? -1) - (left.fit_score ?? -1)
       })
   }, [arrangement, jobs, query, sort, source, status])
