@@ -4,35 +4,66 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { scoreJobAgainstProfile } from '@/lib/scoring'
 import { getProfile } from '@/lib/profile'
-import type { JobStatus } from '@/types/database'
+import type { ApplicationStatus, JobStatus } from '@/types/database'
+
+const progressedApplicationStatuses: ApplicationStatus[] = ['applied', 'interview', 'offer']
 
 export async function updateJobStatus(jobId: string, status: JobStatus) {
   const supabase = await createClient()
 
-  const { error } = await supabase
+  const [{ data: currentJob, error: jobReadError }, { data: application, error: applicationReadError }] =
+    await Promise.all([
+      supabase.from('jobs').select('status').eq('id', jobId).single(),
+      supabase.from('applications').select('id, status').eq('job_id', jobId).maybeSingle(),
+    ])
+
+  if (jobReadError) throw new Error(jobReadError.message)
+  if (applicationReadError) throw new Error(applicationReadError.message)
+
+  if (
+    application &&
+    progressedApplicationStatuses.includes(application.status) &&
+    status !== 'interested'
+  ) {
+    throw new Error('Close or update this active application from the pipeline before moving the job.')
+  }
+
+  const { error: jobUpdateError } = await supabase
     .from('jobs')
     .update({ status })
     .eq('id', jobId)
 
-  if (error) throw new Error(error.message)
+  if (jobUpdateError) throw new Error(jobUpdateError.message)
 
-  if (status === 'interested') {
-    const { data: existing } = await supabase
-      .from('applications')
-      .select('id')
-      .eq('job_id', jobId)
-      .maybeSingle()
-
-    if (!existing) {
-      const { error: insertError } = await supabase.from('applications').insert({
-        job_id: jobId,
-        status: 'interested',
-      })
-      // Ignore a unique-violation race (another call already created the application row).
-      if (insertError && insertError.code !== '23505') {
-        throw new Error(insertError.message)
+  try {
+    if (status === 'interested') {
+      if (!application) {
+        const { error: insertError } = await supabase.from('applications').insert({
+          job_id: jobId,
+          status: 'interested',
+        })
+        if (insertError && insertError.code !== '23505') throw insertError
+      } else if (application.status === 'closed' || application.status === 'rejected') {
+        const { error: reopenError } = await supabase
+          .from('applications')
+          .update({ status: 'interested', applied_at: null })
+          .eq('id', application.id)
+        if (reopenError) throw reopenError
       }
+    } else if (application?.status === 'interested') {
+      const { error: closeError } = await supabase
+        .from('applications')
+        .update({ status: 'closed' })
+        .eq('id', application.id)
+      if (closeError) throw closeError
     }
+  } catch (applicationError) {
+    await supabase.from('jobs').update({ status: currentJob.status }).eq('id', jobId)
+    throw new Error(
+      applicationError instanceof Error
+        ? applicationError.message
+        : 'The related application could not be synchronized.'
+    )
   }
 
   revalidatePath('/jobs')
@@ -114,7 +145,7 @@ export async function rescoreAllJobs() {
     })
   )
 
-  const failures = results.filter((r) => r.error)
+  const failures = results.filter((result) => result.error)
   if (failures.length > 0) {
     console.error(`rescoreAllJobs: ${failures.length} update(s) failed`, failures[0].error)
   }
