@@ -33,31 +33,54 @@ function inFilter(values) {
   return unique.length > 0 ? `in.(${unique.join(',')})` : null
 }
 
-let manifest
+async function rows(path) {
+  return (await rest(path)) ?? []
+}
+
+let manifest = {}
 try {
   manifest = JSON.parse(await readFile(`${evidenceDir}/fixture-manifest.json`, 'utf8'))
 } catch (error) {
-  if (error?.code === 'ENOENT') {
-    console.log('No runtime fixture manifest found; cleanup is not required.')
-    process.exit(0)
-  }
-  throw error
+  if (error?.code !== 'ENOENT') throw error
+}
+
+const environmentToken = (process.env.RUNTIME_RUN_TOKEN ?? '')
+  .replace(/[^a-zA-Z0-9-]/g, '-')
+  .slice(-48)
+const runToken = manifest.runToken || environmentToken
+const marker = manifest.marker || (runToken ? `runtime-qa-${runToken}` : '')
+
+if (!runToken && !marker) {
+  console.log('No runtime marker is available; no fixture writes could be attributed to this run.')
+  process.exit(0)
 }
 
 const fixture = manifest.fixture ?? {}
-const marker = manifest.marker
 const jobIds = new Set([...(fixture.jobIds ?? []), fixture.manualJobId].filter(Boolean))
 const companyIds = new Set([...(fixture.companyIds ?? []), fixture.manualCompanyId].filter(Boolean))
 
-if (marker) {
-  const discoveredJobs = await rest(
-    `jobs?select=id,company_id&external_id=like.${encodeURIComponent(`${marker}*`)}`
-  )
-  for (const row of discoveredJobs ?? []) {
-    jobIds.add(row.id)
-    if (row.company_id) companyIds.add(row.company_id)
-  }
+const discoveredJobs = [
+  ...(marker
+    ? await rows(`jobs?select=id,company_id&external_id=like.${encodeURIComponent(`${marker}*`)}`)
+    : []),
+  ...(runToken
+    ? await rows(`jobs?select=id,company_id&title=like.${encodeURIComponent(`*${runToken}*`)}`)
+    : []),
+]
+for (const row of discoveredJobs) {
+  jobIds.add(row.id)
+  if (row.company_id) companyIds.add(row.company_id)
 }
+
+const discoveredCompanies = [
+  ...(marker
+    ? await rows(`companies?select=id&notes=eq.${encodeURIComponent(marker)}`)
+    : []),
+  ...(runToken
+    ? await rows(`companies?select=id&name=like.${encodeURIComponent(`*${runToken}*`)}`)
+    : []),
+]
+for (const row of discoveredCompanies) companyIds.add(row.id)
 
 const jobsFilter = inFilter([...jobIds])
 if (jobsFilter) {
@@ -74,11 +97,28 @@ if (companiesFilter) {
   await rest(`companies?id=${companiesFilter}`, 'DELETE')
 }
 
-if (marker) {
-  const remaining = await rest(
-    `jobs?select=id&external_id=like.${encodeURIComponent(`${marker}*`)}`
-  )
-  assert.equal(remaining?.length ?? 0, 0, 'Runtime fixture jobs remain after cleanup')
-}
+const remainingJobs = [
+  ...(marker
+    ? await rows(`jobs?select=id&external_id=like.${encodeURIComponent(`${marker}*`)}`)
+    : []),
+  ...(runToken
+    ? await rows(`jobs?select=id&title=like.${encodeURIComponent(`*${runToken}*`)}`)
+    : []),
+]
+const remainingCompanies = [
+  ...(marker
+    ? await rows(`companies?select=id&notes=eq.${encodeURIComponent(marker)}`)
+    : []),
+  ...(runToken
+    ? await rows(`companies?select=id&name=like.${encodeURIComponent(`*${runToken}*`)}`)
+    : []),
+]
+const remainingContacts = marker
+  ? await rows(`contacts?select=id&source=eq.${encodeURIComponent(marker)}`)
+  : []
+
+assert.equal(remainingJobs.length, 0, 'Runtime fixture jobs remain after cleanup')
+assert.equal(remainingCompanies.length, 0, 'Runtime fixture companies remain after cleanup')
+assert.equal(remainingContacts.length, 0, 'Runtime fixture contacts remain after cleanup')
 
 console.log(`Runtime cleanup complete: ${jobIds.size} jobs, ${companyIds.size} companies.`)
