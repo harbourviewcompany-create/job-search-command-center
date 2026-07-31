@@ -1,12 +1,14 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   AlertTriangle,
   BriefcaseBusiness,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleDot,
   Filter,
   Search,
@@ -20,6 +22,7 @@ import { JobCard } from '@/components/JobCard'
 import { LinkedInImportForm } from '@/components/LinkedInImportForm'
 import { LinkedInSearchLinks } from '@/components/LinkedInSearchLinks'
 import { PullJobsButton } from '@/components/PullJobsButton'
+import { formatSource, getWorkArrangement } from '@/lib/jobs'
 import { normalizeDisplayText } from '@/lib/text.mjs'
 import { cn } from '@/lib/utils'
 import type { JobSource, JobStatus, JobWithCompany } from '@/types/database'
@@ -33,9 +36,18 @@ interface PipelineMetrics {
   dismissed: number
 }
 
+interface PaginationState {
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+}
+
 interface Props {
   initialJobs: JobWithCompany[]
   metrics: PipelineMetrics
+  pagination: PaginationState
+  pullAuthorizationToken: string | null
   terms: string[]
   locations: string[]
   loadError?: string | null
@@ -50,15 +62,8 @@ function jobTimestamp(job: JobWithCompany) {
   return Number.isFinite(timestamp) ? timestamp : 0
 }
 
-function isHybrid(job: JobWithCompany) {
-  return `${job.location ?? ''} ${job.job_type ?? ''}`.toLowerCase().includes('hybrid')
-}
-
 function matchesArrangement(job: JobWithCompany, arrangement: ArrangementFilter) {
-  if (arrangement === 'all') return true
-  if (arrangement === 'hybrid') return isHybrid(job)
-  if (arrangement === 'remote') return Boolean(job.remote) && !isHybrid(job)
-  return !job.remote && !isHybrid(job)
+  return arrangement === 'all' || getWorkArrangement(job) === arrangement
 }
 
 function compareCompanies(left: JobWithCompany, right: JobWithCompany) {
@@ -75,6 +80,10 @@ function compareCompanies(left: JobWithCompany, right: JobWithCompany) {
   })
 }
 
+function pageHref(page: number) {
+  return page <= 1 ? '/jobs' : `/jobs?page=${page}`
+}
+
 const metricCards = [
   { key: 'triage', label: 'To triage', icon: CircleDot, tone: 'text-blue-700 bg-blue-50 ring-blue-200' },
   { key: 'interested', label: 'Interested', icon: CheckCircle2, tone: 'text-emerald-700 bg-emerald-50 ring-emerald-200' },
@@ -84,13 +93,25 @@ const metricCards = [
   { key: 'dismissed', label: 'Dismissed', icon: X, tone: 'text-slate-600 bg-slate-100 ring-slate-200' },
 ] as const
 
-export function JobsCommandCenter({ initialJobs, metrics, terms, locations, loadError }: Props) {
+export function JobsCommandCenter({
+  initialJobs,
+  metrics,
+  pagination,
+  pullAuthorizationToken,
+  terms,
+  locations,
+  loadError,
+}: Props) {
   const [jobs, setJobs] = useState(initialJobs)
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<StatusFilter>('active')
   const [source, setSource] = useState<'all' | JobSource>('all')
   const [arrangement, setArrangement] = useState<ArrangementFilter>('all')
   const [sort, setSort] = useState<SortOption>('fit')
+
+  useEffect(() => {
+    setJobs(initialJobs)
+  }, [initialJobs])
 
   const sources = useMemo(
     () => Array.from(new Set(jobs.map((job) => job.source))).sort(),
@@ -130,7 +151,11 @@ export function JobsCommandCenter({ initialJobs, metrics, terms, locations, load
       })
   }, [arrangement, jobs, query, sort, source, status])
 
-  const filtersActive = query || status !== 'active' || source !== 'all' || arrangement !== 'all' || sort !== 'fit'
+  const filtersActive = Boolean(
+    query || status !== 'active' || source !== 'all' || arrangement !== 'all' || sort !== 'fit'
+  )
+  const firstRecord = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1
+  const lastRecord = Math.min(pagination.page * pagination.pageSize, pagination.total)
 
   function clearFilters() {
     setQuery('')
@@ -161,7 +186,7 @@ export function JobsCommandCenter({ initialJobs, metrics, terms, locations, load
             </p>
           </div>
           <div className="shrink-0">
-            <PullJobsButton />
+            <PullJobsButton authorizationToken={pullAuthorizationToken} />
           </div>
         </div>
       </section>
@@ -182,7 +207,7 @@ export function JobsCommandCenter({ initialJobs, metrics, terms, locations, load
             <h2 id="pipeline-summary-heading" className="text-lg font-semibold tracking-tight text-slate-950">
               Pipeline summary
             </h2>
-            <p className="text-sm text-slate-500">Current workload and progress at a glance.</p>
+            <p className="text-sm text-slate-500">Exact counts across the complete pipeline.</p>
           </div>
           <Link href="/applications" className="hidden text-sm font-semibold text-brand-700 hover:text-brand-900 sm:inline-flex">
             Open pipeline
@@ -248,8 +273,8 @@ export function JobsCommandCenter({ initialJobs, metrics, terms, locations, load
             <h2 id="jobs-heading" className="text-xl font-semibold tracking-tight text-slate-950">
               Jobs
             </h2>
-            <p className="mt-0.5 text-sm text-slate-500" aria-live="polite">
-              Showing {filteredJobs.length} of {jobs.length} jobs
+            <p className="mt-0.5 text-sm text-slate-500" aria-live="polite" data-pagination-total={pagination.total}>
+              Showing {filteredJobs.length} filtered results from {jobs.length} jobs on this page · records {firstRecord}–{lastRecord} of {pagination.total}
             </p>
           </div>
           {filtersActive && (
@@ -290,7 +315,7 @@ export function JobsCommandCenter({ initialJobs, metrics, terms, locations, load
                 <option value="all">All sources</option>
                 {sources.map((jobSource) => (
                   <option key={jobSource} value={jobSource}>
-                    {jobSource === 'remoteok' ? 'Remote OK' : jobSource.charAt(0).toUpperCase() + jobSource.slice(1)}
+                    {formatSource(jobSource)}
                   </option>
                 ))}
               </select>
@@ -318,7 +343,7 @@ export function JobsCommandCenter({ initialJobs, metrics, terms, locations, load
           </div>
           <div className="mt-3 flex items-center gap-2 text-xs text-slate-500 lg:hidden">
             <Filter className="h-3.5 w-3.5" aria-hidden="true" />
-            Filters are applied instantly.
+            Filters are applied instantly to the current page.
           </div>
         </div>
 
@@ -334,19 +359,42 @@ export function JobsCommandCenter({ initialJobs, metrics, terms, locations, load
               <Search className="h-5 w-5" aria-hidden="true" />
             </div>
             <h3 className="mt-4 text-base font-semibold text-slate-950">
-              {jobs.length === 0 ? 'No jobs in the pipeline yet' : 'No jobs match these filters'}
+              {jobs.length === 0 ? 'No jobs on this page' : 'No jobs match these filters'}
             </h3>
-            <p className="mt-1 max-w-md text-sm leading-6 text-slate-500">
+            <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
               {jobs.length === 0
-                ? 'Pull jobs from connected sources or open the add/import panel to create the first record.'
-                : 'Clear or adjust the filters to return to the full active pipeline.'}
+                ? 'Use the pagination controls or add and import jobs to continue.'
+                : 'Clear or change the current search and filters.'}
             </p>
-            {jobs.length > 0 && (
-              <button type="button" onClick={clearFilters} className="btn-secondary mt-5">
-                Clear filters
-              </button>
-            )}
           </div>
+        )}
+
+        {pagination.totalPages > 1 && (
+          <nav className="card flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4" aria-label="Jobs pagination">
+            <p className="text-sm text-slate-600">
+              Page <span className="font-semibold text-slate-950">{pagination.page}</span> of {pagination.totalPages}
+            </p>
+            <div className="flex items-center gap-2">
+              {pagination.page > 1 ? (
+                <Link href={pageHref(pagination.page - 1)} className="btn-secondary min-h-11 flex-1 sm:flex-none" rel="prev">
+                  <ChevronLeft className="h-4 w-4" aria-hidden="true" /> Previous
+                </Link>
+              ) : (
+                <span className="btn-secondary min-h-11 flex-1 cursor-not-allowed opacity-50 sm:flex-none" aria-disabled="true">
+                  <ChevronLeft className="h-4 w-4" aria-hidden="true" /> Previous
+                </span>
+              )}
+              {pagination.page < pagination.totalPages ? (
+                <Link href={pageHref(pagination.page + 1)} className="btn-secondary min-h-11 flex-1 sm:flex-none" rel="next">
+                  Next <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+              ) : (
+                <span className="btn-secondary min-h-11 flex-1 cursor-not-allowed opacity-50 sm:flex-none" aria-disabled="true">
+                  Next <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </span>
+              )}
+            </div>
+          </nav>
         )}
       </section>
     </div>
