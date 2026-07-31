@@ -1,5 +1,11 @@
+import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { JobsCommandCenter } from '@/components/JobsCommandCenter'
+import {
+  JOB_PULL_ACCESS_COOKIE,
+  isJobPullAccessConfigured,
+  verifyJobPullAccessToken,
+} from '@/lib/job-pull-auth'
 import { filterAndSortJobs, type JobFilterState } from '@/lib/jobs'
 import { createClient } from '@/lib/supabase/server'
 import type { JobArrangementFilter, JobSort, JobStatusFilter } from '@/lib/jobs'
@@ -92,6 +98,7 @@ async function loadAllJobs() {
 
 export default async function JobsPage({ searchParams }: JobsPageProps) {
   const supabase = await createClient()
+  const cookieStore = await cookies()
   const params = await searchParams
   const requestedPage = parsePage(params.page)
   const pageSize = configuredPageSize()
@@ -139,6 +146,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   const terms = search.terms ?? ['business development manager', 'account executive']
   const locations = search.locations ?? ['Ottawa', 'Ontario', 'Remote']
+  const pullAccessToken = cookieStore.get(JOB_PULL_ACCESS_COOKIE)?.value ?? null
+  const pullAuthorized = Boolean(authResult.data.user) || verifyJobPullAccessToken(pullAccessToken)
 
   const errors = [
     allJobsResult.error,
@@ -165,7 +174,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       filters={filters}
       sources={availableSources}
       pagination={{ page, pageSize, total: totalJobs, totalPages }}
-      pullAuthorizationToken={authResult.data.user ? 'session' : null}
+      pullAuthorized={pullAuthorized}
+      pullAccessConfigured={isJobPullAccessConfigured()}
       terms={terms}
       locations={locations}
       loadError={errors.length > 0 ? Array.from(new Set(errors)).join(' ') : null}
