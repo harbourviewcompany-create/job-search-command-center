@@ -106,7 +106,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         offers: offerResult.count ?? 0,
       }}
       pagination={{ page, pageSize, total: totalJobs, totalPages }}
-      pullAuthorized={Boolean(authResult.data.user)}
+      pullAuthorizationToken={authResult.data.user ? 'session' : null}
       terms={terms}
       locations={locations}
       loadError={errors.length > 0 ? Array.from(new Set(errors)).join(' ') : null}
