@@ -1,16 +1,17 @@
-import { createClient } from '@/lib/supabase/server'
-import { daysSince } from '@/lib/utils'
-import type { Opportunity } from '@/types/database'
 import Link from 'next/link'
 import {
+  ArrowRight,
+  Bell,
   Briefcase,
   CheckCircle2,
   Clock,
-  Zap,
-  ArrowRight,
   DollarSign,
-  Bell,
+  Zap,
 } from 'lucide-react'
+import { createClient } from '@/lib/supabase/server'
+import { normalizeDisplayText } from '@/lib/text.mjs'
+import { daysSince } from '@/lib/utils'
+import type { Opportunity } from '@/types/database'
 
 export const dynamic = 'force-dynamic'
 
@@ -115,7 +116,7 @@ export default async function DashboardPage() {
             <div className="flex items-center justify-between">
               <p className="text-sm text-slate-500">{label}</p>
               <div className={`rounded-lg p-2 ${color}`}>
-                <Icon className="h-4 w-4" />
+                <Icon className="h-4 w-4" aria-hidden="true" />
               </div>
             </div>
             <p className="mt-2 text-3xl font-semibold tabular-nums">{value}</p>
@@ -125,7 +126,7 @@ export default async function DashboardPage() {
 
       <section className="card border-brand-100 bg-gradient-to-br from-white to-brand-50/30">
         <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
-          <Zap className="h-4 w-4 text-brand-600" />
+          <Zap className="h-4 w-4 text-brand-600" aria-hidden="true" />
           <h2 className="font-medium">Do these next</h2>
         </div>
         <ol className="divide-y divide-slate-100">
@@ -141,10 +142,10 @@ export default async function DashboardPage() {
                   {index + 1}. Generate package
                 </p>
                 <p className="truncate text-sm font-medium">
-                  {app.jobs?.title ?? 'Application'}
+                  {normalizeDisplayText(app.jobs?.title, 'Application')}
                 </p>
                 <p className="text-xs text-slate-500">
-                  {app.jobs?.companies?.name ?? ''}
+                  {normalizeDisplayText(app.jobs?.companies?.name)}
                 </p>
               </div>
               <Link href={`/applications/${app.id}`} className="btn-primary shrink-0 text-xs">
@@ -163,10 +164,12 @@ export default async function DashboardPage() {
                     </span>
                   )}
                 </p>
-                <p className="truncate text-sm font-medium">{job.title}</p>
+                <p className="truncate text-sm font-medium">
+                  {normalizeDisplayText(job.title, 'Untitled role')}
+                </p>
                 <p className="text-xs text-slate-500">
-                  {job.companies?.name ?? 'Unknown'}
-                  {job.location ? ` · ${job.location}` : ''}
+                  {normalizeDisplayText(job.companies?.name, 'Unknown')}
+                  {job.location ? ` · ${normalizeDisplayText(job.location)}` : ''}
                 </p>
               </div>
               <Link href="/jobs" className="btn-secondary shrink-0 text-xs">
@@ -180,7 +183,7 @@ export default async function DashboardPage() {
       {dueFollowUps.length > 0 && (
         <section className="card">
           <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
-            <Bell className="h-4 w-4 text-rose-600" />
+            <Bell className="h-4 w-4 text-rose-600" aria-hidden="true" />
             <h2 className="font-medium">Follow-ups due</h2>
           </div>
           <ul className="divide-y divide-slate-100">
@@ -190,10 +193,10 @@ export default async function DashboardPage() {
                 <li key={app.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">
-                      {app.jobs?.title ?? 'Application'}
+                      {normalizeDisplayText(app.jobs?.title, 'Application')}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {app.jobs?.companies?.name ?? ''}
+                      {normalizeDisplayText(app.jobs?.companies?.name)}
                       {days !== null ? ` · Applied ${days}d ago` : ''}
                     </p>
                   </div>
@@ -212,7 +215,7 @@ export default async function DashboardPage() {
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
             <h2 className="font-medium">Best job matches</h2>
             <Link href="/jobs" className="btn-ghost text-xs">
-              All jobs <ArrowRight className="h-3.5 w-3.5" />
+              All jobs <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
             </Link>
           </div>
           <ul className="divide-y divide-slate-100">
@@ -225,14 +228,18 @@ export default async function DashboardPage() {
               <li key={job.id} className="px-5 py-3.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{job.title}</p>
+                    <p className="truncate text-sm font-medium">
+                      {normalizeDisplayText(job.title, 'Untitled role')}
+                    </p>
                     <p className="text-xs text-slate-500">
-                      {job.companies?.name ?? 'Unknown'}
-                      {job.location ? ` · ${job.location}` : ''}
+                      {normalizeDisplayText(job.companies?.name, 'Unknown')}
+                      {job.location ? ` · ${normalizeDisplayText(job.location)}` : ''}
                       {job.remote ? ' · Remote' : ''}
                     </p>
                     {Array.isArray(job.fit_reasons) && job.fit_reasons[0] && (
-                      <p className="mt-0.5 text-xs text-slate-400">{job.fit_reasons[0]}</p>
+                      <p className="mt-0.5 text-xs text-slate-400">
+                        {normalizeDisplayText(job.fit_reasons[0])}
+                      </p>
                     )}
                   </div>
                   {job.fit_score != null && (
@@ -250,7 +257,7 @@ export default async function DashboardPage() {
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
             <h2 className="font-medium">Cash plays</h2>
             <Link href="/opportunities" className="btn-ghost text-xs">
-              All plays <ArrowRight className="h-3.5 w-3.5" />
+              All plays <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
             </Link>
           </div>
           <ul className="divide-y divide-slate-100">
@@ -263,14 +270,18 @@ export default async function DashboardPage() {
               <li key={opportunity.id} className="px-5 py-3.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium">{opportunity.title}</p>
+                    <p className="text-sm font-medium">
+                      {normalizeDisplayText(opportunity.title, 'Untitled opportunity')}
+                    </p>
                     <p className="text-xs text-slate-500">
-                      {opportunity.estimated_value ?? '—'}
-                      {opportunity.time_to_cash ? ` · ${opportunity.time_to_cash}` : ''}
+                      {normalizeDisplayText(opportunity.estimated_value, '—')}
+                      {opportunity.time_to_cash
+                        ? ` · ${normalizeDisplayText(opportunity.time_to_cash)}`
+                        : ''}
                     </p>
                   </div>
                   <span className="badge shrink-0 bg-violet-50 text-violet-700 capitalize">
-                    {opportunity.type.replace('_', ' ')}
+                    {opportunity.type.replaceAll('_', ' ')}
                   </span>
                 </div>
               </li>
