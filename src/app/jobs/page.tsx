@@ -1,11 +1,28 @@
 import { JobsCommandCenter } from '@/components/JobsCommandCenter'
+import { createJobPullToken } from '@/lib/job-pull-auth'
 import { createClient } from '@/lib/supabase/server'
 import type { JobWithCompany } from '@/types/database'
 
 export const dynamic = 'force-dynamic'
 
-export default async function JobsPage() {
+const PAGE_SIZE = 100
+
+interface JobsPageProps {
+  searchParams: Promise<{ page?: string | string[] }>
+}
+
+function parsePage(value: string | string[] | undefined) {
+  const raw = Array.isArray(value) ? value[0] : value
+  const parsed = Number.parseInt(raw ?? '1', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+}
+
+export default async function JobsPage({ searchParams }: JobsPageProps) {
   const supabase = await createClient()
+  const params = await searchParams
+  const page = parsePage(params.page)
+  const from = (page - 1) * PAGE_SIZE
+  const to = from + PAGE_SIZE - 1
 
   const [
     jobsResult,
@@ -13,13 +30,16 @@ export default async function JobsPage() {
     appliedResult,
     interviewResult,
     offerResult,
+    triageCountResult,
+    interestedCountResult,
+    dismissedCountResult,
   ] = await Promise.all([
     supabase
       .from('jobs')
-      .select('*, companies(*)')
+      .select('*, companies(*)', { count: 'exact' })
       .in('status', ['found', 'interested', 'dismissed'])
       .order('fit_score', { ascending: false, nullsFirst: false })
-      .limit(500),
+      .range(from, to),
     supabase.from('settings').select('value').eq('key', 'search_terms').maybeSingle(),
     supabase
       .from('applications')
@@ -33,9 +53,14 @@ export default async function JobsPage() {
       .from('applications')
       .select('*', { count: 'exact', head: true })
       .eq('status', 'offer'),
+    supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('status', 'found'),
+    supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('status', 'interested'),
+    supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('status', 'dismissed'),
   ])
 
   const jobs = (jobsResult.data ?? []) as JobWithCompany[]
+  const totalJobs = jobsResult.count ?? 0
+  const totalPages = Math.max(1, Math.ceil(totalJobs / PAGE_SIZE))
   const search =
     (searchSettingResult.data?.value as {
       terms?: string[]
@@ -54,19 +79,24 @@ export default async function JobsPage() {
     appliedResult.error?.message,
     interviewResult.error?.message,
     offerResult.error?.message,
+    triageCountResult.error?.message,
+    interestedCountResult.error?.message,
+    dismissedCountResult.error?.message,
   ].filter(Boolean)
 
   return (
     <JobsCommandCenter
       initialJobs={jobs}
       metrics={{
-        triage: jobs.filter((job) => job.status === 'found').length,
-        interested: jobs.filter((job) => job.status === 'interested').length,
-        dismissed: jobs.filter((job) => job.status === 'dismissed').length,
+        triage: triageCountResult.count ?? 0,
+        interested: interestedCountResult.count ?? 0,
+        dismissed: dismissedCountResult.count ?? 0,
         applied: appliedResult.count ?? 0,
         interviews: interviewResult.count ?? 0,
         offers: offerResult.count ?? 0,
       }}
+      pagination={{ page, pageSize: PAGE_SIZE, total: totalJobs, totalPages }}
+      pullAuthorizationToken={createJobPullToken()}
       terms={terms}
       locations={locations}
       loadError={errors.length > 0 ? Array.from(new Set(errors)).join(' ') : null}
