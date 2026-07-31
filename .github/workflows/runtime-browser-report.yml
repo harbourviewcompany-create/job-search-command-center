@@ -1,0 +1,82 @@
+name: Runtime Browser Result Reporter
+
+on:
+  push:
+    branches:
+      - internal-ui-remediation-20260731
+
+permissions:
+  actions: read
+  issues: write
+
+concurrency:
+  group: runtime-browser-reporter-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  report:
+    name: Report deterministic runtime result to PR 8
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Wait for matching runtime workflow and report result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${REPOSITORY}"
+          runtime_id=""
+          runtime_status=""
+          runtime_conclusion=""
+
+          for attempt in $(seq 1 330); do
+            response=$(curl --fail --silent --show-error \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${api}/actions/runs?head_sha=${SOURCE_SHA}&event=push&per_page=100")
+
+            runtime_id=$(jq -r \
+              --arg current "${CURRENT_RUN_ID}" \
+              '.workflow_runs[] | select(.name == "Runtime Browser Verify" and (.id | tostring) != $current) | .id' \
+              <<<"${response}" | head -n 1)
+
+            if [ -n "${runtime_id}" ] && [ "${runtime_id}" != "null" ]; then
+              runtime_status=$(jq -r \
+                --argjson id "${runtime_id}" \
+                '.workflow_runs[] | select(.id == $id) | .status' \
+                <<<"${response}")
+              runtime_conclusion=$(jq -r \
+                --argjson id "${runtime_id}" \
+                '.workflow_runs[] | select(.id == $id) | .conclusion // "pending"' \
+                <<<"${response}")
+              if [ "${runtime_status}" = "completed" ]; then
+                break
+              fi
+            fi
+            sleep 10
+          done
+
+          if [ -z "${runtime_id}" ] || [ "${runtime_status}" != "completed" ]; then
+            runtime_conclusion="timed_out_waiting_for_runtime_result"
+          fi
+
+          run_url="https://github.com/${REPOSITORY}/actions/runs/${runtime_id:-unknown}"
+          body=$(jq -n \
+            --arg sha "${SOURCE_SHA}" \
+            --arg run "${runtime_id:-unknown}" \
+            --arg url "${run_url}" \
+            --arg conclusion "${runtime_conclusion}" \
+            '{body: ("Deterministic runtime verification completed for `" + $sha + "`.\n\n- Workflow run: [" + $run + "](" + $url + ")\n- Conclusion: **" + $conclusion + "**\n- Merge performed: **no**\n- Deployment performed: **no**") }')
+
+          curl --fail --silent --show-error \
+            -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${api}/issues/8/comments" \
+            -d "${body}"
