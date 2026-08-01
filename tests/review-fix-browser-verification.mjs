@@ -14,6 +14,7 @@ function record(name, detail = '') {
   checks.push({ name, passed: true, detail: typeof detail === 'string' ? detail : JSON.stringify(detail) })
 }
 
+let failure = null
 const browser = await chromium.launch()
 try {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } })
@@ -67,14 +68,21 @@ try {
   } finally {
     await context.close()
   }
+} catch (error) {
+  failure = error
+  checks.push({
+    name: 'Focused browser verification completed',
+    passed: false,
+    detail: error instanceof Error ? error.stack ?? error.message : String(error),
+  })
 } finally {
   await browser.close()
+  await writeFile(
+    `${evidenceDir}/review-fix-browser-evidence.json`,
+    JSON.stringify({ generatedAt: new Date().toISOString(), checks }, null, 2),
+    'utf8'
+  )
 }
 
-await writeFile(
-  `${evidenceDir}/review-fix-browser-evidence.json`,
-  JSON.stringify({ generatedAt: new Date().toISOString(), checks }, null, 2),
-  'utf8'
-)
-
+if (failure) throw failure
 console.log(`${checks.length}/${checks.length} focused review-fix checks passed.`)
