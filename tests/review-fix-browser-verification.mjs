@@ -39,9 +39,9 @@ try {
     assert.equal(lockedProbe.status(), 401)
     record('Locked browser is unauthorized', lockedProbe.status())
 
-    await page.getByLabel('Manual job-pull access key').fill(accessKey)
-    await page.getByRole('button', { name: 'Unlock pulls', exact: true }).click()
-    await page.getByText('Manual pulls unlocked for this browser.', { exact: true }).waitFor()
+    await page.getByLabel('Operator access key').fill(accessKey)
+    await page.getByRole('button', { name: 'Unlock operator', exact: true }).click()
+    await page.getByText('Operator access unlocked for this browser.', { exact: true }).waitFor()
     await page.getByRole('button', { name: 'Pull latest jobs', exact: true }).waitFor()
     assert.equal(await page.getByRole('button', { name: 'Pull latest jobs', exact: true }).isEnabled(), true)
 
@@ -60,7 +60,7 @@ try {
     })
 
     await page.getByRole('button', { name: 'Lock', exact: true }).click()
-    await page.getByText('Manual pulls locked.', { exact: true }).waitFor()
+    await page.getByText('Operator access locked.', { exact: true }).waitFor()
     await page.waitForTimeout(400)
     const relockedProbe = await page.request.head(`${baseUrl}/api/jobs/pull`)
     assert.equal(relockedProbe.status(), 401)
