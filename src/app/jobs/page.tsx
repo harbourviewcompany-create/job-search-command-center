@@ -77,7 +77,10 @@ function jobsHref(filters: JobFilterState, page: number) {
 }
 
 function searchPatterns(value: string) {
-  const normalized = value.replace(/[,*()]/g, ' ').replace(/\s+/g, ' ').trim()
+  const normalized = value
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
   if (!normalized) return []
 
   const variants = new Set([normalized])
@@ -86,14 +89,21 @@ function searchPatterns(value: string) {
   return Array.from(variants, (variant) => `*${variant}*`)
 }
 
+function quotePostgrestFilterValue(value: string) {
+  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
+}
+
 function jobSearchClauses(patterns: string[], companyIds: string[]) {
-  const clauses = patterns.flatMap((pattern) => [
-    `title.ilike.${pattern}`,
-    `location.ilike.${pattern}`,
-    `description.ilike.${pattern}`,
-    `job_type.ilike.${pattern}`,
-    `source.ilike.${pattern}`,
-  ])
+  const clauses = patterns.flatMap((pattern) => {
+    const value = quotePostgrestFilterValue(pattern)
+    return [
+      `title.ilike.${value}`,
+      `location.ilike.${value}`,
+      `description.ilike.${value}`,
+      `job_type.ilike.${value}`,
+      `source.ilike.${value}`,
+    ]
+  })
   if (companyIds.length > 0) clauses.push(`company_id.in.(${companyIds.join(',')})`)
   return clauses
 }
@@ -112,7 +122,11 @@ async function matchingCompanyIds(query: string) {
   let companyQuery = supabase.from('companies').select('id').limit(5000)
   companyQuery = patterns.length === 1
     ? companyQuery.ilike('name', patterns[0].replaceAll('*', '%'))
-    : companyQuery.or(patterns.map((pattern) => `name.ilike.${pattern}`).join(','))
+    : companyQuery.or(
+        patterns
+          .map((pattern) => `name.ilike.${quotePostgrestFilterValue(pattern)}`)
+          .join(',')
+      )
 
   const { data, error } = await companyQuery
   return {
@@ -123,19 +137,7 @@ async function matchingCompanyIds(query: string) {
 
 function applyDatabaseOrder<T extends {
   order: (column: string, options?: { ascending?: boolean; nullsFirst?: boolean }) => T
-}>(query: T, sort: JobSort) {
-  if (sort === 'newest') {
-    return query
-      .order('posted_at', { ascending: false, nullsFirst: false })
-      .order('fetched_at', { ascending: false })
-      .order('id', { ascending: true })
-  }
-  if (sort === 'oldest') {
-    return query
-      .order('posted_at', { ascending: true, nullsFirst: false })
-      .order('fetched_at', { ascending: true })
-      .order('id', { ascending: true })
-  }
+}>(query: T) {
   return query
     .order('fit_score', { ascending: false, nullsFirst: false })
     .order('posted_at', { ascending: false, nullsFirst: false })
@@ -182,7 +184,7 @@ async function loadDatabasePage(
   if (clauses.length > 0) dataQuery = dataQuery.or(clauses.join(','))
 
   const from = (page - 1) * pageSize
-  const { data, error } = await applyDatabaseOrder(dataQuery, filters.sort)
+  const { data, error } = await applyDatabaseOrder(dataQuery)
     .range(from, from + pageSize - 1)
 
   return {
@@ -254,7 +256,11 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const filters = parseFilters(params)
 
   const companyMatchResult = await matchingCompanyIds(filters.query)
-  const usesDerivedDatabaseFields = filters.arrangement !== 'all' || filters.sort === 'company'
+  const usesDerivedDatabaseFields =
+    filters.arrangement !== 'all' ||
+    filters.sort === 'company' ||
+    filters.sort === 'newest' ||
+    filters.sort === 'oldest'
   const jobsResult = usesDerivedDatabaseFields
     ? await loadDerivedPage(filters, requestedPage, pageSize, companyMatchResult.ids)
     : await loadDatabasePage(filters, requestedPage, pageSize, companyMatchResult.ids)
