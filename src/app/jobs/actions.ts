@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { requireOperatorAccess } from '@/lib/operator-auth'
 import { createClient } from '@/lib/supabase/server'
 import { scoreJobAgainstProfile } from '@/lib/scoring'
 import { getProfile } from '@/lib/profile'
@@ -9,6 +10,7 @@ import type { ApplicationStatus, JobStatus } from '@/types/database'
 const progressedApplicationStatuses: ApplicationStatus[] = ['applied', 'interview', 'offer']
 
 export async function updateJobStatus(jobId: string, status: JobStatus) {
+  await requireOperatorAccess()
   const supabase = await createClient()
 
   const [{ data: currentJob, error: jobReadError }, { data: application, error: applicationReadError }] =
@@ -18,6 +20,7 @@ export async function updateJobStatus(jobId: string, status: JobStatus) {
     ])
 
   if (jobReadError) throw new Error(jobReadError.message)
+  if (!currentJob) throw new Error('The selected job could not be found.')
   if (applicationReadError) throw new Error(applicationReadError.message)
 
   if (
@@ -58,7 +61,24 @@ export async function updateJobStatus(jobId: string, status: JobStatus) {
       if (closeError) throw closeError
     }
   } catch (applicationError) {
-    await supabase.from('jobs').update({ status: currentJob.status }).eq('id', jobId)
+    const { error: rollbackError } = await supabase
+      .from('jobs')
+      .update({ status: currentJob.status })
+      .eq('id', jobId)
+
+    if (rollbackError) {
+      console.error('updateJobStatus: rollback failed', {
+        jobId,
+        requestedStatus: status,
+        previousStatus: currentJob.status,
+        applicationError,
+        rollbackError,
+      })
+      throw new Error(
+        'The job status changed but the related application could not be synchronized. Reload the page and reconcile the pipeline.'
+      )
+    }
+
     throw new Error(
       applicationError instanceof Error
         ? applicationError.message
@@ -72,6 +92,7 @@ export async function updateJobStatus(jobId: string, status: JobStatus) {
 }
 
 export async function addManualJob(formData: FormData) {
+  await requireOperatorAccess()
   const supabase = await createClient()
 
   const title = String(formData.get('title') || '').trim()
@@ -127,6 +148,7 @@ export async function addManualJob(formData: FormData) {
 }
 
 export async function rescoreAllJobs() {
+  await requireOperatorAccess()
   const supabase = await createClient()
   const profile = await getProfile(supabase)
 
