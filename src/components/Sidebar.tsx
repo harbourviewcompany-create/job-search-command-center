@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Target } from 'lucide-react'
-import { primaryNavigation } from '@/lib/navigation'
+import { isActiveRoute, primaryNavigation } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
 export function Sidebar() {
@@ -23,7 +23,7 @@ export function Sidebar() {
 
       <nav aria-label="Primary" className="flex flex-1 flex-col gap-1 p-3">
         {primaryNavigation.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href || pathname.startsWith(`${href}/`)
+          const active = isActiveRoute(pathname, href)
           return (
             <Link
               key={href}
