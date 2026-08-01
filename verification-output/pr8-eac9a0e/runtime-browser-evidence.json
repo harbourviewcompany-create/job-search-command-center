@@ -1,0 +1,1089 @@
+{
+  "generatedAt": "2026-08-01T23:13:07.156Z",
+  "source": "eac9a0e18a1208e69ecb4445a5358f52e6adec8a",
+  "marker": "runtime-qa-pr8-eac9a0e-30722777558-1",
+  "summary": {
+    "total": 39,
+    "passed": 37,
+    "failed": 2
+  },
+  "checks": [
+    {
+      "name": "Deterministic Supabase fixtures seeded",
+      "passed": true,
+      "detail": "{\"alphaJobId\":\"f36c0ae9-1155-4675-a923-5101dad22c52\",\"betaTitle\":\"QA Beta Hybrid pr8-eac9a0e-30722777558-1\"}"
+    },
+    {
+      "name": "Viewport 375",
+      "passed": true,
+      "detail": "{\"overflow\":0,\"cards\":25}"
+    },
+    {
+      "name": "Viewport 768",
+      "passed": true,
+      "detail": "{\"overflow\":0,\"cards\":25}"
+    },
+    {
+      "name": "Viewport 1440",
+      "passed": true,
+      "detail": "{\"overflow\":0,\"cards\":25}"
+    },
+    {
+      "name": "Status filter: active",
+      "passed": true,
+      "detail": "25"
+    },
+    {
+      "name": "Status filter: all",
+      "passed": true,
+      "detail": "25"
+    },
+    {
+      "name": "Status filter: found",
+      "passed": true,
+      "detail": "25"
+    },
+    {
+      "name": "Status filter: interested",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "name": "Status filter: dismissed",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "name": "Source filter: manual",
+      "passed": true,
+      "detail": "25"
+    },
+    {
+      "name": "Source filter: linkedin",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "name": "Source filter: adzuna",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "name": "Source filter: remoteok",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "name": "Source filter: indeed",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "name": "Source filter: ziprecruiter",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "name": "Arrangement filter: remote",
+      "passed": true,
+      "detail": "2"
+    },
+    {
+      "name": "Arrangement filter: hybrid",
+      "passed": true,
+      "detail": "1"
+    },
+    {
+      "name": "Arrangement filter: location",
+      "passed": true,
+      "detail": "25"
+    },
+    {
+      "name": "Sort: best fit",
+      "passed": true,
+      "detail": "[100,100,100,100,90,89,88,87,86,85]"
+    },
+    {
+      "name": "Sort: company A–Z",
+      "passed": true,
+      "detail": "[\"QA Alpha pr8-eac9a0e-30722777558-1\",\"QA Beta pr8-eac9a0e-30722777558-1\",\"QA Delta pr8-eac9a0e-30722777558-1\",\"QA Epsilon pr8-eac9a0e-30722777558-1\",\"QA Filler pr8-eac9a0e-30722777558-1\",\"QA Filler pr8-eac9a0e-30722777558-1\",\"QA Filler pr8-eac9a0e-30722777558-1\",\"QA Filler pr8-eac9a0e-30722777558-1\",\"QA Filler pr8-eac9a0e-30722777558-1\",\"QA Filler pr8-eac9a0e-30722777558-1\"]"
+    },
+    {
+      "name": "Sort: newest first",
+      "passed": true,
+      "detail": "[2053728000000,2053641600000,2053555200000,2053468800000,2053382400000,2053296000000,2052864000000,2052777600000,2052691200000,2052604800000]"
+    },
+    {
+      "name": "Sort: oldest first",
+      "passed": true,
+      "detail": "[2050876800000,2050963200000,2051049600000,2051136000000,2051222400000,2051308800000,2051395200000,2051481600000,2051568000000,2051654400000]"
+    },
+    {
+      "name": "Server-wide search, filters, and sorts",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Manual add refreshes existing state",
+      "passed": true,
+      "detail": "58fdd261-9d83-4b33-b0e7-4cf871e62b10"
+    },
+    {
+      "name": "Job/application transition: interested/interested",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Job/application transition: dismissed/closed",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Job/application transition: found/closed",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Job/application transition: interested/interested",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Job/application transition: found/closed",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Job/application status lifecycle",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Job-pull authorization and service flow",
+      "passed": true,
+      "detail": "{\"ok\":true,\"verification\":\"connected-runtime-service-key\",\"inserted\":0,\"updated\":0,\"skipped\":0}"
+    },
+    {
+      "name": "Pagination preserves filters and clamps stale pages",
+      "passed": false,
+      "detail": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\nnull !== '2'\n\n    at verifyPaginationAndClamp (file:///home/runner/work/job-search-command-center/job-search-command-center/source/tests/runtime-browser-verification-v3.mjs:442:10)\n    at async verify (file:///home/runner/work/job-search-command-center/job-search-command-center/source/tests/runtime-browser-verification-v3.mjs:43:24)\n    at async file:///home/runner/work/job-search-command-center/job-search-command-center/source/tests/runtime-browser-verification-v3.mjs:640:5"
+    },
+    {
+      "name": "Encoding repair across routes",
+      "passed": false,
+      "detail": "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator('article').filter({ has: getByRole('heading', { name: 'Ingénieur QA pr8-eac9a0e-30722777558-1' }) }) to be visible\n\n    at verifyEncodingAcrossRoutes (/home/runner/work/job-search-command-center/job-search-command-center/source/tests/runtime-browser-verification-v3.mjs:451:14)\n    at async verify (/home/runner/work/job-search-command-center/job-search-command-center/source/tests/runtime-browser-verification-v3.mjs:43:24)\n    at async file:///home/runner/work/job-search-command-center/job-search-command-center/source/tests/runtime-browser-verification-v3.mjs:641:5"
+    },
+    {
+      "name": "External links use hardened new-tab attributes",
+      "passed": true,
+      "detail": "5"
+    },
+    {
+      "name": "Keyboard navigation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "Reduced motion",
+      "passed": true,
+      "detail": "1e-05s"
+    },
+    {
+      "name": "iOS WebKit safe area",
+      "passed": true,
+      "detail": "{\"viewport\":\"width=device-width, initial-scale=1, viewport-fit=cover\",\"safeTop\":true,\"safeBottom\":true,\"headerBottom\":65,\"mainTop\":65,\"overflow\":0}"
+    },
+    {
+      "name": "Console: no errors",
+      "passed": true,
+      "detail": "[]"
+    },
+    {
+      "name": "Network: no actionable failures",
+      "passed": true,
+      "detail": "[]"
+    }
+  ],
+  "screenshots": [
+    "qa/exact-head/jobs-mobile-375.png",
+    "qa/exact-head/jobs-tablet-768.png",
+    "qa/exact-head/jobs-desktop-1440.png",
+    "qa/exact-head/jobs-functional-desktop-1440.png",
+    "qa/exact-head/jobs-webkit-ios-375.png"
+  ],
+  "consoleEvents": [],
+  "networkEvents": [
+    {
+      "label": "mobile-375",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "mobile-375",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "mobile-375",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "tablet-768",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "tablet-768",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "tablet-768",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "desktop-1440",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "desktop-1440",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "desktop-1440",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/opportunities",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "desktop-1440",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/contacts",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "desktop-1440",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "desktop-1440",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/settings",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/opportunities",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/settings",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/opportunities",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/contacts",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/settings",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/opportunities",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/contacts",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/settings",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/opportunities",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/contacts",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/contacts",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/settings",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/opportunities",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "POST",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "POST",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "POST",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/opportunities",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/contacts",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/settings",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/opportunities",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/contacts",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/settings",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/jobs",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/opportunities",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/contacts",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/settings",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/opportunities",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/contacts",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/contacts",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/settings",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/opportunities",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/opportunities",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/contacts",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "functional",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/settings",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "keyboard",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "label": "keyboard",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/settings",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "keyboard",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/dashboard",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "keyboard",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/applications",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "keyboard",
+      "method": "GET",
+      "status": 0,
+      "resourceType": "fetch",
+      "url": "http://127.0.0.1:3000/opportunities",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "label": "webkit-ios",
+      "method": "GET",
+      "status": 200,
+      "resourceType": "document",
+      "url": "http://127.0.0.1:3000/jobs"
+    }
+  ]
+}

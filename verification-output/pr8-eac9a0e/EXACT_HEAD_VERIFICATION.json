@@ -1,0 +1,31 @@
+{
+  "generatedAt": "2026-08-01T23:13:13.501191+00:00",
+  "sourceSha": "eac9a0e18a1208e69ecb4445a5358f52e6adec8a",
+  "commandExitCodes": {
+    "npmCi": 0,
+    "typecheck": 0,
+    "lint": 0,
+    "tests": 0,
+    "build": 0,
+    "playwrightPackage": 0,
+    "playwrightBrowsers": 0,
+    "serverStart": 0,
+    "runtimeBrowser": 1,
+    "focusedBrowser": 0,
+    "cleanup": 0
+  },
+  "runtimeSummary": {
+    "total": 39,
+    "passed": 37,
+    "failed": 2
+  },
+  "focusedSummary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0
+  },
+  "cleanupTail": "Runtime cleanup complete: 31 jobs, 8 companies.\n",
+  "finalGo": false,
+  "mergePerformed": false,
+  "deploymentPerformed": false
+}
