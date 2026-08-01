@@ -10,7 +10,6 @@ on:
 
 permissions:
   actions: read
-  issues: write
 
 concurrency:
   group: runtime-browser-reporter-${{ github.ref }}
@@ -21,6 +20,10 @@ jobs:
     name: Report deterministic runtime result to PR 8
     runs-on: ubuntu-latest
     timeout-minutes: 55
+    # The reporter alone needs permission to post the final run result.
+    permissions:
+      actions: read
+      issues: write
     steps:
       - name: Wait for matching runtime workflow and report result
         env:
@@ -36,7 +39,9 @@ jobs:
           runtime_status=""
           runtime_conclusion=""
 
-          for attempt in $(seq 1 330); do
+          # Cap polling at 45 minutes, leaving ten minutes for API overhead and
+          # the timeout-reporting comment path to complete.
+          for attempt in $(seq 1 270); do
             response=$(curl --fail --silent --show-error \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
