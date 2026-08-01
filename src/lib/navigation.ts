@@ -23,3 +23,8 @@ export const primaryNavigation: readonly NavigationItem[] = [
   { href: '/contacts', label: 'Contacts', icon: ContactRound },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
+
+/** Marks exact destinations and their nested routes consistently. */
+export function isActiveRoute(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
