@@ -98,6 +98,7 @@ export function JobsCommandCenter({
   const [query, setQuery] = useState(filters.query)
   const filtersRef = useRef(filters)
   const queryRef = useRef(filters.query)
+  const syncedServerQueryRef = useRef(filters.query)
   const searchTimerRef = useRef<number | null>(null)
   const suppressSearchSyncRef = useRef(false)
 
@@ -107,8 +108,11 @@ export function JobsCommandCenter({
 
   useEffect(() => {
     filtersRef.current = filters
-    queryRef.current = filters.query
-    setQuery(filters.query)
+    if (syncedServerQueryRef.current !== filters.query) {
+      syncedServerQueryRef.current = filters.query
+      queryRef.current = filters.query
+      setQuery(filters.query)
+    }
   }, [filters])
 
   const clearPendingSearch = useCallback(() => {
@@ -188,6 +192,7 @@ export function JobsCommandCenter({
     suppressSearchSyncRef.current = queryWillChange
     filtersRef.current = defaultFilters
     queryRef.current = ''
+    syncedServerQueryRef.current = ''
     setQuery('')
     startNavigation(() => router.replace('/jobs', { scroll: false }))
   }
@@ -311,7 +316,7 @@ export function JobsCommandCenter({
               Jobs
             </h2>
             <p className="mt-0.5 text-sm text-slate-500" aria-live="polite" data-pagination-total={pagination.total}>
-              Showing {jobs.length} jobs · records {firstRecord}–{lastRecord} of {pagination.total} matching results
+              Records {firstRecord}–{lastRecord} of {pagination.total} matching results
             </p>
           </div>
           {filtersActive && (
