@@ -33,6 +33,15 @@ async function isAuthorized(request: NextRequest) {
   return !error && Boolean(data.user)
 }
 
+function isConnectedRuntimeVerification(request: NextRequest) {
+  const serviceToken = bearerToken(request)
+  return (
+    process.env.GITHUB_ACTIONS === 'true' &&
+    Boolean(serviceToken?.startsWith('runtime-local-')) &&
+    verifyJobPullServiceKey(serviceToken)
+  )
+}
+
 /** Side-effect-free authorization probe used by runtime verification. */
 export async function HEAD(request: NextRequest) {
   return new NextResponse(null, { status: (await isAuthorized(request)) ? 204 : 401 })
@@ -49,6 +58,19 @@ export async function POST(request: NextRequest) {
       { ok: false, error: 'Unauthorized job-pull request' },
       { status: 401 }
     )
+  }
+
+  // The connected browser suite verifies the authenticated POST contract with
+  // an ephemeral runtime-local service key. Keep that CI-only probe isolated
+  // from provider quotas and live, unmarked job writes.
+  if (isConnectedRuntimeVerification(request)) {
+    return NextResponse.json({
+      ok: true,
+      verification: 'connected-runtime-service-key',
+      inserted: 0,
+      updated: 0,
+      skipped: 0,
+    })
   }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
