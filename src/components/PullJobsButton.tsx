@@ -188,9 +188,10 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
               {unlocking ? 'Unlocking…' : 'Unlock operator'}
             </button>
           </form>
-          <p className="text-xs font-medium text-amber-100">
-            Sign in with Supabase Auth or unlock this browser with the configured operator key.
-          </p>
+          <div className="space-y-1 text-xs font-medium text-amber-100">
+            <p>An authenticated Supabase session is required for manual pulls.</p>
+            <p>For the single-user setup, unlock this browser with the configured operator key; the same access protects job mutations.</p>
+          </div>
         </div>
       ) : (
         <p className="rounded-xl border border-amber-300/30 bg-amber-100/10 px-3 py-2 text-xs font-medium text-amber-100">
