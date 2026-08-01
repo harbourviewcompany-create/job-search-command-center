@@ -13,6 +13,7 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
   const [pending, startTransition] = useTransition()
   const [accessKey, setAccessKey] = useState('')
   const [unlocking, setUnlocking] = useState(false)
+  const [locking, setLocking] = useState(false)
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
   const router = useRouter()
 
@@ -80,13 +81,22 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
   }
 
   async function handleLock() {
+    if (locking) return
+
+    setLocking(true)
     setMessage(null)
     try {
-      await fetch('/api/jobs/pull/access', { method: 'DELETE' })
+      const response = await fetch('/api/jobs/pull/access', { method: 'DELETE' })
+      if (!response.ok) throw new Error('Manual pulls could not be locked.')
       setMessage({ tone: 'success', text: 'Manual pulls locked.' })
       router.refresh()
-    } catch {
-      setMessage({ tone: 'error', text: 'Manual pulls could not be locked.' })
+    } catch (caughtError) {
+      setMessage({
+        tone: 'error',
+        text: caughtError instanceof Error ? caughtError.message : 'Manual pulls could not be locked.',
+      })
+    } finally {
+      setLocking(false)
     }
   }
 
@@ -97,7 +107,7 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
           <button
             type="button"
             onClick={handlePull}
-            disabled={pending}
+            disabled={pending || locking}
             className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-black/20 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <RefreshCw className={`h-4 w-4 ${pending ? 'animate-spin' : ''}`} aria-hidden="true" />
@@ -107,11 +117,11 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
             <button
               type="button"
               onClick={handleLock}
-              disabled={pending}
+              disabled={pending || locking}
               className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-3 text-sm font-semibold text-white transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:opacity-60"
             >
               <LockKeyhole className="h-4 w-4" aria-hidden="true" />
-              Lock
+              {locking ? 'Locking…' : 'Lock'}
             </button>
           )}
         </div>
