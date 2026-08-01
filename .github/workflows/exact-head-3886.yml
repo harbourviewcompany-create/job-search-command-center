@@ -1,0 +1,118 @@
+name: PR 8 Exact Head 3886 Connected Verify
+
+on:
+  push:
+    branches:
+      - verification/pr8-9097f87
+    paths:
+      - .github/workflows/exact-head-3886.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr8-exact-head-3886
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Static and connected browser gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: true
+      NEXT_TELEMETRY_DISABLED: 1
+      NEXT_PUBLIC_SUPABASE_URL: https://zvxdgdkukjrrwamdpqrg.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2eGRnZGt1a2pycndhbWRwcXJnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNDMxNzUsImV4cCI6MjA5MjgxOTE3NX0.MEGWEsDpJO3964Ef2G2Cbo-Q5JKT46WB1xtlXE-ue5M
+      JOB_PULL_API_KEY: runtime-local-pr8-3886
+      JOBS_PAGE_SIZE: 25
+      RUNTIME_RUN_TOKEN: pr8-3886-${{ github.run_id }}-${{ github.run_attempt }}
+      RUNTIME_BASE_URL: http://127.0.0.1:3000
+      RUNTIME_EVIDENCE_DIR: qa/exact-3886
+    steps:
+      - name: Checkout exact PR source
+        uses: actions/checkout@v4
+        with:
+          ref: 3886f6b6a703cb2b605f9e7ea61a4ddc4fa3ae5f
+          path: source
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+
+      - name: Install committed dependencies
+        working-directory: source
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: source
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: source
+        run: npm run lint
+
+      - name: Unit tests
+        working-directory: source
+        run: npm test
+
+      - name: Production build
+        working-directory: source
+        run: npm run build
+
+      - name: Install browser runtime
+        working-directory: source
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright@1.54.1
+          npx playwright@1.54.1 install --with-deps chromium webkit
+
+      - name: Start production server
+        working-directory: source
+        shell: bash
+        run: |
+          mkdir -p "$RUNTIME_EVIDENCE_DIR"
+          npm run start -- --hostname 127.0.0.1 --port 3000 > "$RUNTIME_EVIDENCE_DIR/server.log" 2>&1 &
+          echo $! > "$RUNTIME_EVIDENCE_DIR/server.pid"
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent "$RUNTIME_BASE_URL/jobs" >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNTIME_EVIDENCE_DIR/server.log"
+          exit 1
+
+      - name: Deterministic connected-Supabase browser verification
+        working-directory: source
+        timeout-minutes: 35
+        run: GITHUB_SHA=3886f6b6a703cb2b605f9e7ea61a4ddc4fa3ae5f node tests/runtime-browser-verification.mjs
+
+      - name: Focused authorization and filter verification
+        working-directory: source
+        timeout-minutes: 10
+        run: GITHUB_SHA=3886f6b6a703cb2b605f9e7ea61a4ddc4fa3ae5f node tests/review-fix-browser-verification.mjs
+
+      - name: Independently clean runtime fixtures
+        if: always()
+        working-directory: source
+        run: node tests/runtime-browser-cleanup.mjs
+
+      - name: Stop production server
+        if: always()
+        working-directory: source
+        shell: bash
+        run: |
+          if [ -f "$RUNTIME_EVIDENCE_DIR/server.pid" ]; then
+            kill "$(cat "$RUNTIME_EVIDENCE_DIR/server.pid")" 2>/dev/null || true
+          fi
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr8-exact-head-3886-evidence-${{ github.run_id }}
+          path: source/qa/exact-3886
+          if-no-files-found: error
+          retention-days: 14
