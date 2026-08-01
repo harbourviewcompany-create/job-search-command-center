@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Menu, Target, X } from 'lucide-react'
-import { primaryNavigation } from '@/lib/navigation'
+import { isActiveRoute, primaryNavigation } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
 export function MobileNav() {
@@ -44,7 +44,7 @@ export function MobileNav() {
         <nav id="mobile-navigation" aria-label="Primary" className="border-t border-slate-200 bg-white px-3 py-3 shadow-lg">
           <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {primaryNavigation.map(({ href, label, icon: Icon }) => {
-              const active = pathname === href || pathname.startsWith(`${href}/`)
+              const active = isActiveRoute(pathname, href)
               return (
                 <li key={href}>
                   <Link
