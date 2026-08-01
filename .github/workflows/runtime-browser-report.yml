@@ -19,7 +19,7 @@ jobs:
   report:
     name: Report deterministic runtime result to PR 8
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 70
     # The reporter alone needs permission to post the final run result.
     permissions:
       actions: read
@@ -39,9 +39,10 @@ jobs:
           runtime_status=""
           runtime_conclusion=""
 
-          # Cap polling at 45 minutes, leaving ten minutes for API overhead and
-          # the timeout-reporting comment path to complete.
-          for attempt in $(seq 1 270); do
+          # Poll for up to 60 minutes so the 50-minute runtime workflow and
+          # normal runner scheduling delay can finish. Ten minutes remain for
+          # API overhead and the timeout-reporting fallback.
+          for attempt in $(seq 1 360); do
             response=$(curl --fail --silent --show-error \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
@@ -79,7 +80,7 @@ jobs:
             --arg run "${runtime_id:-unknown}" \
             --arg url "${run_url}" \
             --arg conclusion "${runtime_conclusion}" \
-            '{body: ("Deterministic runtime verification completed for `" + $sha + "`.\n\n- Workflow run: [" + $run + "](" + $url + ")\n- Conclusion: **" + $conclusion + "**\n- Merge performed: **no**\n- Deployment performed: **no**") }')
+            '{body: ("Deterministic runtime verification completed for `" + $sha + "`.\n\n- Workflow run: [" + $run + "](" + $url + ")\n- Conclusion: **" + $conclusion + "**\n- Merge performed: **no**\n- Production deployment performed: **no**") }')
 
           curl --fail --silent --show-error \
             -X POST \
