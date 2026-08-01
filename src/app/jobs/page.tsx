@@ -76,9 +76,26 @@ function jobsHref(filters: JobFilterState, page: number) {
   return query ? `/jobs?${query}` : '/jobs'
 }
 
-function searchPattern(value: string) {
+function searchPatterns(value: string) {
   const normalized = value.replace(/[,*()]/g, ' ').replace(/\s+/g, ' ').trim()
-  return normalized ? `*${normalized}*` : null
+  if (!normalized) return []
+
+  const variants = new Set([normalized])
+  const mojibakeVariant = Buffer.from(normalized, 'utf8').toString('latin1')
+  if (mojibakeVariant !== normalized) variants.add(mojibakeVariant)
+  return Array.from(variants, (variant) => `*${variant}*`)
+}
+
+function jobSearchClauses(patterns: string[], companyIds: string[]) {
+  const clauses = patterns.flatMap((pattern) => [
+    `title.ilike.${pattern}`,
+    `location.ilike.${pattern}`,
+    `description.ilike.${pattern}`,
+    `job_type.ilike.${pattern}`,
+    `source.ilike.${pattern}`,
+  ])
+  if (companyIds.length > 0) clauses.push(`company_id.in.(${companyIds.join(',')})`)
+  return clauses
 }
 
 function statusValues(filters: JobFilterState) {
@@ -88,16 +105,16 @@ function statusValues(filters: JobFilterState) {
 }
 
 async function matchingCompanyIds(query: string) {
-  const pattern = searchPattern(query)
-  if (!pattern) return { ids: [] as string[], error: null as string | null }
+  const patterns = searchPatterns(query)
+  if (patterns.length === 0) return { ids: [] as string[], error: null as string | null }
 
   const supabase = await createClient()
-  const { data, error } = await supabase
-    .from('companies')
-    .select('id')
-    .ilike('name', pattern.replaceAll('*', '%'))
-    .limit(5000)
+  let companyQuery = supabase.from('companies').select('id').limit(5000)
+  companyQuery = patterns.length === 1
+    ? companyQuery.ilike('name', patterns[0].replaceAll('*', '%'))
+    : companyQuery.or(patterns.map((pattern) => `name.ilike.${pattern}`).join(','))
 
+  const { data, error } = await companyQuery
   return {
     ids: (data ?? []).map((company) => company.id),
     error: error?.message ?? null,
@@ -128,50 +145,64 @@ function applyDatabaseOrder<T extends {
 
 async function loadDatabasePage(
   filters: JobFilterState,
-  page: number,
+  requestedPage: number,
   pageSize: number,
   companyIds: string[]
 ) {
   const supabase = await createClient()
-  let query = supabase
+  const clauses = jobSearchClauses(searchPatterns(filters.query), companyIds)
+
+  let countQuery = supabase
     .from('jobs')
-    .select('*, companies(*)', { count: 'exact' })
+    .select('id', { count: 'exact', head: true })
     .in('status', statusValues(filters))
+  if (filters.source !== 'all') countQuery = countQuery.eq('source', filters.source)
+  if (clauses.length > 0) countQuery = countQuery.or(clauses.join(','))
 
-  if (filters.source !== 'all') query = query.eq('source', filters.source)
-
-  const pattern = searchPattern(filters.query)
-  if (pattern) {
-    const clauses = [
-      `title.ilike.${pattern}`,
-      `location.ilike.${pattern}`,
-      `description.ilike.${pattern}`,
-      `job_type.ilike.${pattern}`,
-      `source.ilike.${pattern}`,
-    ]
-    if (companyIds.length > 0) clauses.push(`company_id.in.(${companyIds.join(',')})`)
-    query = query.or(clauses.join(','))
+  const { count, error: countError } = await countQuery
+  if (countError) {
+    return {
+      rows: [] as JobWithCompany[],
+      total: 0,
+      page: 1,
+      totalPages: 1,
+      error: countError.message,
+    }
   }
 
+  const total = count ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const page = Math.min(requestedPage, totalPages)
+
+  let dataQuery = supabase
+    .from('jobs')
+    .select('*, companies(*)')
+    .in('status', statusValues(filters))
+  if (filters.source !== 'all') dataQuery = dataQuery.eq('source', filters.source)
+  if (clauses.length > 0) dataQuery = dataQuery.or(clauses.join(','))
+
   const from = (page - 1) * pageSize
-  const ordered = applyDatabaseOrder(query, filters.sort)
-  const { data, count, error } = await ordered.range(from, from + pageSize - 1)
+  const { data, error } = await applyDatabaseOrder(dataQuery, filters.sort)
+    .range(from, from + pageSize - 1)
 
   return {
     rows: error ? [] : ((data ?? []) as JobWithCompany[]),
-    total: error ? 0 : count ?? 0,
+    total,
+    page,
+    totalPages,
     error: error?.message ?? null,
   }
 }
 
 async function loadDerivedPage(
   filters: JobFilterState,
-  page: number,
+  requestedPage: number,
   pageSize: number,
   companyIds: string[]
 ) {
   const supabase = await createClient()
   const rows: JobWithCompany[] = []
+  const clauses = jobSearchClauses(searchPatterns(filters.query), companyIds)
 
   for (let from = 0; ; from += DATABASE_BATCH_SIZE) {
     let query = supabase
@@ -181,22 +212,18 @@ async function loadDerivedPage(
       .order('id', { ascending: true })
 
     if (filters.source !== 'all') query = query.eq('source', filters.source)
-
-    const pattern = searchPattern(filters.query)
-    if (pattern) {
-      const clauses = [
-        `title.ilike.${pattern}`,
-        `location.ilike.${pattern}`,
-        `description.ilike.${pattern}`,
-        `job_type.ilike.${pattern}`,
-        `source.ilike.${pattern}`,
-      ]
-      if (companyIds.length > 0) clauses.push(`company_id.in.(${companyIds.join(',')})`)
-      query = query.or(clauses.join(','))
-    }
+    if (clauses.length > 0) query = query.or(clauses.join(','))
 
     const { data, error } = await query.range(from, from + DATABASE_BATCH_SIZE - 1)
-    if (error) return { rows: [] as JobWithCompany[], total: 0, error: error.message }
+    if (error) {
+      return {
+        rows: [] as JobWithCompany[],
+        total: 0,
+        page: 1,
+        totalPages: 1,
+        error: error.message,
+      }
+    }
 
     const batch = (data ?? []) as JobWithCompany[]
     rows.push(...batch)
@@ -204,10 +231,16 @@ async function loadDerivedPage(
   }
 
   const filtered = filterAndSortJobs(rows, filters)
+  const total = filtered.length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const page = Math.min(requestedPage, totalPages)
   const from = (page - 1) * pageSize
+
   return {
     rows: filtered.slice(from, from + pageSize),
-    total: filtered.length,
+    total,
+    page,
+    totalPages,
     error: null as string | null,
   }
 }
@@ -222,23 +255,13 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   const companyMatchResult = await matchingCompanyIds(filters.query)
   const usesDerivedDatabaseFields = filters.arrangement !== 'all' || filters.sort === 'company'
-  const initialJobsResult = usesDerivedDatabaseFields
+  const jobsResult = usesDerivedDatabaseFields
     ? await loadDerivedPage(filters, requestedPage, pageSize, companyMatchResult.ids)
     : await loadDatabasePage(filters, requestedPage, pageSize, companyMatchResult.ids)
 
-  const totalPages = Math.max(1, Math.ceil(initialJobsResult.total / pageSize))
-  const page = Math.min(requestedPage, totalPages)
-
-  if (requestedPage !== page) {
-    redirect(jobsHref(filters, page))
+  if (requestedPage !== jobsResult.page) {
+    redirect(jobsHref(filters, jobsResult.page))
   }
-
-  const jobsResult =
-    page === requestedPage
-      ? initialJobsResult
-      : usesDerivedDatabaseFields
-        ? await loadDerivedPage(filters, page, pageSize, companyMatchResult.ids)
-        : await loadDatabasePage(filters, page, pageSize, companyMatchResult.ids)
 
   const [
     authResult,
@@ -296,7 +319,12 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       }}
       filters={filters}
       sources={JOB_SOURCES}
-      pagination={{ page, pageSize, total: jobsResult.total, totalPages }}
+      pagination={{
+        page: jobsResult.page,
+        pageSize,
+        total: jobsResult.total,
+        totalPages: jobsResult.totalPages,
+      }}
       pullAuthorized={pullAuthorized}
       pullAccessConfigured={isJobPullAccessConfigured()}
       terms={terms}
