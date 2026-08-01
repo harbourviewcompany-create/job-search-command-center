@@ -41,7 +41,7 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
 
   function handlePull() {
     if (!effectiveAuthorized) {
-      setMessage({ tone: 'error', text: 'Unlock manual pulls before running this action.' })
+      setMessage({ tone: 'error', text: 'Unlock operator access before running this action.' })
       return
     }
 
@@ -52,6 +52,11 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
         const data = await response.json()
 
         if (!response.ok || data.ok === false) {
+          if (response.status === 401) {
+            setBrowserAuthorized(false)
+            setCanLock(false)
+            router.refresh()
+          }
           setMessage({ tone: 'error', text: data.error ?? 'The job pull failed. Verify provider configuration.' })
           return
         }
@@ -85,19 +90,19 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
       const data = await response.json()
 
       if (!response.ok || data.ok === false) {
-        setMessage({ tone: 'error', text: data.error ?? 'Manual pulls could not be unlocked.' })
+        setMessage({ tone: 'error', text: data.error ?? 'Operator access could not be unlocked.' })
         return
       }
 
       setAccessKey('')
       setBrowserAuthorized(true)
-      setMessage({ tone: 'success', text: 'Manual pulls unlocked for this browser.' })
+      setMessage({ tone: 'success', text: 'Operator access unlocked for this browser.' })
       await refreshAccessState()
       router.refresh()
     } catch (caughtError) {
       setMessage({
         tone: 'error',
-        text: caughtError instanceof Error ? caughtError.message : 'Manual pulls could not be unlocked.',
+        text: caughtError instanceof Error ? caughtError.message : 'Operator access could not be unlocked.',
       })
     } finally {
       setUnlocking(false)
@@ -111,15 +116,15 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
     setMessage(null)
     try {
       const response = await fetch('/api/jobs/pull/access', { method: 'DELETE' })
-      if (!response.ok) throw new Error('Manual pulls could not be locked.')
+      if (!response.ok) throw new Error('Operator access could not be locked.')
       setCanLock(false)
       setBrowserAuthorized(false)
-      setMessage({ tone: 'success', text: 'Manual pulls locked.' })
+      setMessage({ tone: 'success', text: 'Operator access locked.' })
       router.refresh()
     } catch (caughtError) {
       setMessage({
         tone: 'error',
-        text: caughtError instanceof Error ? caughtError.message : 'Manual pulls could not be locked.',
+        text: caughtError instanceof Error ? caughtError.message : 'Operator access could not be locked.',
       })
     } finally {
       setLocking(false)
@@ -163,7 +168,7 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
           </button>
           <form onSubmit={handleUnlock} className="flex w-full flex-col gap-2 sm:flex-row" aria-busy={unlocking}>
             <label className="relative min-w-0 flex-1">
-              <span className="sr-only">Manual job-pull access key</span>
+              <span className="sr-only">Operator access key</span>
               <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
               <input
                 type="password"
@@ -180,16 +185,16 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
               className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-black/20 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <KeyRound className="h-4 w-4" aria-hidden="true" />
-              {unlocking ? 'Unlocking…' : 'Unlock pulls'}
+              {unlocking ? 'Unlocking…' : 'Unlock operator'}
             </button>
           </form>
           <p className="text-xs font-medium text-amber-100">
-            An authenticated Supabase session is required for manual pulls. Alternatively, unlock this browser with the configured access key.
+            Sign in with Supabase Auth or unlock this browser with the configured operator key.
           </p>
         </div>
       ) : (
         <p className="rounded-xl border border-amber-300/30 bg-amber-100/10 px-3 py-2 text-xs font-medium text-amber-100">
-          Configure JOB_PULL_API_KEY to enable manual pulls.
+          Configure JOB_PULL_API_KEY to enable protected operator actions.
         </p>
       )}
 
