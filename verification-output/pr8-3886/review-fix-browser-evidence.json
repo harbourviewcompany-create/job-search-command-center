@@ -1,0 +1,25 @@
+{
+  "generatedAt": "2026-08-01T23:30:36.617Z",
+  "checks": [
+    {
+      "name": "Clear filters cancels stale debounced search updates",
+      "passed": true,
+      "detail": "http://127.0.0.1:3000/jobs"
+    },
+    {
+      "name": "Locked browser is unauthorized",
+      "passed": true,
+      "detail": "401"
+    },
+    {
+      "name": "Single-user unlock authorizes the browser with an HttpOnly cookie",
+      "passed": true,
+      "detail": "{\"httpOnly\":true,\"sameSite\":\"Strict\",\"status\":204}"
+    },
+    {
+      "name": "Lock removes browser authorization",
+      "passed": true,
+      "detail": "401"
+    }
+  ]
+}

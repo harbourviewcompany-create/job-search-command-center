@@ -1,0 +1,30 @@
+{
+  "sourceSha": "3886f6b6a703cb2b605f9e7ea61a4ddc4fa3ae5f",
+  "exitCodes": {
+    "npmCi": 0,
+    "typecheck": 0,
+    "lint": 0,
+    "tests": 0,
+    "build": 0,
+    "playwrightPackage": 0,
+    "playwrightBrowsers": 0,
+    "server": 0,
+    "runtime": 0,
+    "focused": 0,
+    "cleanup": 0
+  },
+  "runtimeSummary": {
+    "total": 39,
+    "passed": 39,
+    "failed": 0
+  },
+  "focusedSummary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0
+  },
+  "cleanupTail": "Runtime cleanup complete: 31 jobs, 8 companies.\n",
+  "finalGo": true,
+  "merged": false,
+  "productionDeployed": false
+}
