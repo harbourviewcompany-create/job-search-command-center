@@ -76,23 +76,139 @@ function jobsHref(filters: JobFilterState, page: number) {
   return query ? `/jobs?${query}` : '/jobs'
 }
 
-async function loadAllJobs() {
+function searchPattern(value: string) {
+  const normalized = value.replace(/[,*()]/g, ' ').replace(/\s+/g, ' ').trim()
+  return normalized ? `*${normalized}*` : null
+}
+
+function statusValues(filters: JobFilterState) {
+  if (filters.status === 'active') return ['found', 'interested'] as const
+  if (filters.status === 'all') return ['found', 'interested', 'dismissed'] as const
+  return [filters.status] as const
+}
+
+async function matchingCompanyIds(query: string) {
+  const pattern = searchPattern(query)
+  if (!pattern) return { ids: [] as string[], error: null as string | null }
+
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('companies')
+    .select('id')
+    .ilike('name', pattern.replaceAll('*', '%'))
+    .limit(5000)
+
+  return {
+    ids: (data ?? []).map((company) => company.id),
+    error: error?.message ?? null,
+  }
+}
+
+function applyDatabaseOrder<T extends {
+  order: (column: string, options?: { ascending?: boolean; nullsFirst?: boolean }) => T
+}>(query: T, sort: JobSort) {
+  if (sort === 'newest') {
+    return query
+      .order('posted_at', { ascending: false, nullsFirst: false })
+      .order('fetched_at', { ascending: false })
+      .order('id', { ascending: true })
+  }
+  if (sort === 'oldest') {
+    return query
+      .order('posted_at', { ascending: true, nullsFirst: false })
+      .order('fetched_at', { ascending: true })
+      .order('id', { ascending: true })
+  }
+  return query
+    .order('fit_score', { ascending: false, nullsFirst: false })
+    .order('posted_at', { ascending: false, nullsFirst: false })
+    .order('fetched_at', { ascending: false })
+    .order('id', { ascending: true })
+}
+
+async function loadDatabasePage(
+  filters: JobFilterState,
+  page: number,
+  pageSize: number,
+  companyIds: string[]
+) {
+  const supabase = await createClient()
+  let query = supabase
+    .from('jobs')
+    .select('*, companies(*)', { count: 'exact' })
+    .in('status', statusValues(filters))
+
+  if (filters.source !== 'all') query = query.eq('source', filters.source)
+
+  const pattern = searchPattern(filters.query)
+  if (pattern) {
+    const clauses = [
+      `title.ilike.${pattern}`,
+      `location.ilike.${pattern}`,
+      `description.ilike.${pattern}`,
+      `job_type.ilike.${pattern}`,
+      `source.ilike.${pattern}`,
+    ]
+    if (companyIds.length > 0) clauses.push(`company_id.in.(${companyIds.join(',')})`)
+    query = query.or(clauses.join(','))
+  }
+
+  const from = (page - 1) * pageSize
+  const ordered = applyDatabaseOrder(query, filters.sort)
+  const { data, count, error } = await ordered.range(from, from + pageSize - 1)
+
+  return {
+    rows: error ? [] : ((data ?? []) as JobWithCompany[]),
+    total: error ? 0 : count ?? 0,
+    error: error?.message ?? null,
+  }
+}
+
+async function loadDerivedPage(
+  filters: JobFilterState,
+  page: number,
+  pageSize: number,
+  companyIds: string[]
+) {
   const supabase = await createClient()
   const rows: JobWithCompany[] = []
 
   for (let from = 0; ; from += DATABASE_BATCH_SIZE) {
-    const { data, error } = await supabase
+    let query = supabase
       .from('jobs')
       .select('*, companies(*)')
-      .in('status', ['found', 'interested', 'dismissed'])
+      .in('status', statusValues(filters))
       .order('id', { ascending: true })
-      .range(from, from + DATABASE_BATCH_SIZE - 1)
 
-    if (error) return { rows, error: error.message }
+    if (filters.source !== 'all') query = query.eq('source', filters.source)
+
+    const pattern = searchPattern(filters.query)
+    if (pattern) {
+      const clauses = [
+        `title.ilike.${pattern}`,
+        `location.ilike.${pattern}`,
+        `description.ilike.${pattern}`,
+        `job_type.ilike.${pattern}`,
+        `source.ilike.${pattern}`,
+      ]
+      if (companyIds.length > 0) clauses.push(`company_id.in.(${companyIds.join(',')})`)
+      query = query.or(clauses.join(','))
+    }
+
+    const { data, error } = await query.range(from, from + DATABASE_BATCH_SIZE - 1)
+    if (error) return { rows: [] as JobWithCompany[], total: 0, error: error.message }
 
     const batch = (data ?? []) as JobWithCompany[]
     rows.push(...batch)
-    if (batch.length < DATABASE_BATCH_SIZE) return { rows, error: null }
+    if (batch.length < DATABASE_BATCH_SIZE) break
+  }
+
+  const filtered = filterAndSortJobs(rows, filters)
+  const from = (page - 1) * pageSize
+  return {
+    rows: filtered.slice(from, from + pageSize),
+    total: filtered.length,
+    error: null as string | null,
   }
 }
 
@@ -104,8 +220,27 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const pageSize = configuredPageSize()
   const filters = parseFilters(params)
 
+  const companyMatchResult = await matchingCompanyIds(filters.query)
+  const usesDerivedDatabaseFields = filters.arrangement !== 'all' || filters.sort === 'company'
+  const initialJobsResult = usesDerivedDatabaseFields
+    ? await loadDerivedPage(filters, requestedPage, pageSize, companyMatchResult.ids)
+    : await loadDatabasePage(filters, requestedPage, pageSize, companyMatchResult.ids)
+
+  const totalPages = Math.max(1, Math.ceil(initialJobsResult.total / pageSize))
+  const page = Math.min(requestedPage, totalPages)
+
+  if (requestedPage !== page) {
+    redirect(jobsHref(filters, page))
+  }
+
+  const jobsResult =
+    page === requestedPage
+      ? initialJobsResult
+      : usesDerivedDatabaseFields
+        ? await loadDerivedPage(filters, page, pageSize, companyMatchResult.ids)
+        : await loadDatabasePage(filters, page, pageSize, companyMatchResult.ids)
+
   const [
-    allJobsResult,
     authResult,
     searchSettingResult,
     appliedResult,
@@ -115,7 +250,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
     interestedCountResult,
     dismissedCountResult,
   ] = await Promise.all([
-    loadAllJobs(),
     supabase.auth.getUser(),
     supabase.from('settings').select('value').eq('key', 'search_terms').maybeSingle(),
     supabase.from('applications').select('*', { count: 'exact', head: true }).eq('status', 'applied'),
@@ -126,18 +260,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
     supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('status', 'dismissed'),
   ])
 
-  const availableSources = Array.from(new Set(allJobsResult.rows.map((job) => job.source))).sort()
-  const filteredJobs = filterAndSortJobs(allJobsResult.rows, filters)
-  const totalJobs = filteredJobs.length
-  const totalPages = Math.max(1, Math.ceil(totalJobs / pageSize))
-  const page = Math.min(requestedPage, totalPages)
-
-  if (requestedPage !== page) {
-    redirect(jobsHref(filters, page))
-  }
-
-  const from = (page - 1) * pageSize
-  const jobs = filteredJobs.slice(from, from + pageSize)
   const search =
     (searchSettingResult.data?.value as {
       terms?: string[]
@@ -150,7 +272,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const pullAuthorized = Boolean(authResult.data.user) || verifyJobPullAccessToken(pullAccessToken)
 
   const errors = [
-    allJobsResult.error,
+    companyMatchResult.error,
+    jobsResult.error,
     searchSettingResult.error?.message,
     appliedResult.error?.message,
     interviewResult.error?.message,
@@ -162,7 +285,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   return (
     <JobsCommandCenter
-      initialJobs={jobs}
+      initialJobs={jobsResult.rows}
       metrics={{
         triage: triageCountResult.count ?? 0,
         interested: interestedCountResult.count ?? 0,
@@ -172,8 +295,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         offers: offerResult.count ?? 0,
       }}
       filters={filters}
-      sources={availableSources}
-      pagination={{ page, pageSize, total: totalJobs, totalPages }}
+      sources={JOB_SOURCES}
+      pagination={{ page, pageSize, total: jobsResult.total, totalPages }}
       pullAuthorized={pullAuthorized}
       pullAccessConfigured={isJobPullAccessConfigured()}
       terms={terms}
