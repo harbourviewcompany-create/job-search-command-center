@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useCallback, useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { KeyRound, LockKeyhole, RefreshCw } from 'lucide-react'
 
@@ -14,8 +14,28 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
   const [accessKey, setAccessKey] = useState('')
   const [unlocking, setUnlocking] = useState(false)
   const [locking, setLocking] = useState(false)
+  const [canLock, setCanLock] = useState(false)
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
   const router = useRouter()
+
+  const refreshAccessState = useCallback(async () => {
+    if (!authorized && !accessConfigured) {
+      setCanLock(false)
+      return
+    }
+
+    try {
+      const response = await fetch('/api/jobs/pull/access', { method: 'GET', cache: 'no-store' })
+      const data = await response.json()
+      setCanLock(response.ok && data.canLock === true)
+    } catch {
+      setCanLock(false)
+    }
+  }, [accessConfigured, authorized])
+
+  useEffect(() => {
+    void refreshAccessState()
+  }, [refreshAccessState])
 
   function handlePull() {
     if (!authorized) {
@@ -69,6 +89,7 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
 
       setAccessKey('')
       setMessage({ tone: 'success', text: 'Manual pulls unlocked for this browser.' })
+      await refreshAccessState()
       router.refresh()
     } catch (caughtError) {
       setMessage({
@@ -88,6 +109,7 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
     try {
       const response = await fetch('/api/jobs/pull/access', { method: 'DELETE' })
       if (!response.ok) throw new Error('Manual pulls could not be locked.')
+      setCanLock(false)
       setMessage({ tone: 'success', text: 'Manual pulls locked.' })
       router.refresh()
     } catch (caughtError) {
@@ -113,7 +135,7 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
             <RefreshCw className={`h-4 w-4 ${pending ? 'animate-spin' : ''}`} aria-hidden="true" />
             {pending ? 'Pulling jobs…' : 'Pull latest jobs'}
           </button>
-          {accessConfigured && (
+          {accessConfigured && canLock && (
             <button
               type="button"
               onClick={handleLock}
