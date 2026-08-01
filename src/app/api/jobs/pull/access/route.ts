@@ -1,16 +1,35 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import {
   createJobPullAccessToken,
   isJobPullAccessConfigured,
   JOB_PULL_ACCESS_COOKIE,
   JOB_PULL_ACCESS_MAX_AGE_SECONDS,
+  verifyJobPullAccessToken,
   verifyJobPullServiceKey,
 } from '@/lib/job-pull-auth'
+import { createClient } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
 
 function secureCookie(request: Request) {
   return new URL(request.url).protocol === 'https:'
+}
+
+/** Reports whether the browser authorization can actually be revoked by DELETE. */
+export async function GET(request: NextRequest) {
+  const supabase = await createClient()
+  const { data, error } = await supabase.auth.getUser()
+  const sessionAuthorized = !error && Boolean(data.user)
+  const cookieAuthorized = verifyJobPullAccessToken(
+    request.cookies.get(JOB_PULL_ACCESS_COOKIE)?.value ?? null
+  )
+
+  return NextResponse.json({
+    ok: true,
+    sessionAuthorized,
+    cookieAuthorized,
+    canLock: cookieAuthorized && !sessionAuthorized,
+  })
 }
 
 export async function POST(request: Request) {
