@@ -1,0 +1,91 @@
+name: Apply Confirmed PR 8 Runtime Fixes
+
+on:
+  push:
+    branches:
+      - maintenance/pr8-runtime-fix
+    paths:
+      - .github/workflows/apply-pr8-runtime-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: internal-ui-remediation-20260731
+
+      - name: Apply confirmed runtime fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          harness = Path('tests/runtime-browser-verification-v3.mjs')
+          text = harness.read_text(encoding='utf-8')
+          old = """    description: `Pagination fixture ${runToken}`,
+    posted_at: new Date(base - (10 + index) * 86_400_000).toISOString(),
+"""
+          new = """    description: `Pagination fixture ${runToken}`,
+    url: `https://example.com/${marker}-filler-${index}`,
+    posted_at: new Date(base - (10 + index) * 86_400_000).toISOString(),
+"""
+          if old not in text:
+              raise SystemExit('Expected filler fixture block not found')
+          harness.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          button = Path('src/components/PullJobsButton.tsx')
+          text = button.read_text(encoding='utf-8')
+          replacements = [
+              (
+                  "  const [canLock, setCanLock] = useState(false)\n",
+                  "  const [canLock, setCanLock] = useState(false)\n  const [browserAuthorized, setBrowserAuthorized] = useState(false)\n",
+              ),
+              (
+                  "  const router = useRouter()\n\n  const refreshAccessState",
+                  "  const router = useRouter()\n  const effectiveAuthorized = authorized || browserAuthorized\n\n  const refreshAccessState",
+              ),
+              (
+                  "    if (!authorized && !accessConfigured) {",
+                  "    if (!effectiveAuthorized && !accessConfigured) {",
+              ),
+              (
+                  "  }, [accessConfigured, authorized])",
+                  "  }, [accessConfigured, effectiveAuthorized])",
+              ),
+              (
+                  "    if (!authorized) {",
+                  "    if (!effectiveAuthorized) {",
+              ),
+              (
+                  "      setAccessKey('')\n      setMessage({ tone: 'success', text: 'Manual pulls unlocked for this browser.' })",
+                  "      setAccessKey('')\n      setBrowserAuthorized(true)\n      setMessage({ tone: 'success', text: 'Manual pulls unlocked for this browser.' })",
+              ),
+              (
+                  "      setCanLock(false)\n      setMessage({ tone: 'success', text: 'Manual pulls locked.' })",
+                  "      setCanLock(false)\n      setBrowserAuthorized(false)\n      setMessage({ tone: 'success', text: 'Manual pulls locked.' })",
+              ),
+              (
+                  "      {authorized ? (",
+                  "      {effectiveAuthorized ? (",
+              ),
+          ]
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f'Expected PullJobsButton block not found: {old!r}')
+              text = text.replace(old, new, 1)
+          button.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit and push PR fixes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/runtime-browser-verification-v3.mjs src/components/PullJobsButton.tsx
+          git commit -m "fix: correct deterministic fixtures and unlock state"
+          git push origin HEAD:internal-ui-remediation-20260731
