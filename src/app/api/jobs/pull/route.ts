@@ -10,7 +10,7 @@ import { createClient as createServerClient } from '@/lib/supabase/server'
 export const runtime = 'nodejs'
 export const maxDuration = 180
 
-const FUNCTION_TIMEOUT_MS = 180_000
+const FUNCTION_TIMEOUT_MS = 165_000
 
 function bearerToken(request: Request) {
   const authorization = request.headers.get('authorization')
