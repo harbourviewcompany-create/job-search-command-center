@@ -15,11 +15,13 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
   const [unlocking, setUnlocking] = useState(false)
   const [locking, setLocking] = useState(false)
   const [canLock, setCanLock] = useState(false)
+  const [browserAuthorized, setBrowserAuthorized] = useState(false)
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
   const router = useRouter()
+  const effectiveAuthorized = authorized || browserAuthorized
 
   const refreshAccessState = useCallback(async () => {
-    if (!authorized && !accessConfigured) {
+    if (!effectiveAuthorized && !accessConfigured) {
       setCanLock(false)
       return
     }
@@ -31,14 +33,14 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
     } catch {
       setCanLock(false)
     }
-  }, [accessConfigured, authorized])
+  }, [accessConfigured, effectiveAuthorized])
 
   useEffect(() => {
     void refreshAccessState()
   }, [refreshAccessState])
 
   function handlePull() {
-    if (!authorized) {
+    if (!effectiveAuthorized) {
       setMessage({ tone: 'error', text: 'Unlock manual pulls before running this action.' })
       return
     }
@@ -88,6 +90,7 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
       }
 
       setAccessKey('')
+      setBrowserAuthorized(true)
       setMessage({ tone: 'success', text: 'Manual pulls unlocked for this browser.' })
       await refreshAccessState()
       router.refresh()
@@ -110,6 +113,7 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
       const response = await fetch('/api/jobs/pull/access', { method: 'DELETE' })
       if (!response.ok) throw new Error('Manual pulls could not be locked.')
       setCanLock(false)
+      setBrowserAuthorized(false)
       setMessage({ tone: 'success', text: 'Manual pulls locked.' })
       router.refresh()
     } catch (caughtError) {
@@ -124,7 +128,7 @@ export function PullJobsButton({ authorized, accessConfigured }: Props) {
 
   return (
     <div className="flex max-w-sm flex-col items-stretch gap-2 sm:items-end">
-      {authorized ? (
+      {effectiveAuthorized ? (
         <div className="flex flex-col gap-2 sm:flex-row">
           <button
             type="button"
