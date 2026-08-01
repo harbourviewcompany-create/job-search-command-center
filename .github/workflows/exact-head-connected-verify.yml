@@ -1,4 +1,4 @@
-name: PR 8 Updated Exact-Head Connected Verification
+name: PR 8 Final Exact-Head Connected Verification
 
 on:
   push:
@@ -11,31 +11,31 @@ permissions:
   contents: write
 
 concurrency:
-  group: pr8-updated-exact-head-connected-verification
+  group: pr8-final-exact-head-connected-verification
   cancel-in-progress: false
 
 jobs:
   verify:
-    name: Verify eac9a0e against connected Supabase
+    name: Verify cf4a14f against connected Supabase
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
       CI: true
       NEXT_TELEMETRY_DISABLED: 1
-      VERIFIED_SOURCE_SHA: eac9a0e18a1208e69ecb4445a5358f52e6adec8a
+      VERIFIED_SOURCE_SHA: cf4a14f0e61ca89fe0db496bd24e01589dc0f6d1
       NEXT_PUBLIC_SUPABASE_URL: https://zvxdgdkukjrrwamdpqrg.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2eGRnZGt1a2pycndhbWRwcXJnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNDMxNzUsImV4cCI6MjA5MjgxOTE3NX0.MEGWEsDpJO3964Ef2G2Cbo-Q5JKT46WB1xtlXE-ue5M
-      JOB_PULL_API_KEY: runtime-local-pr8-updated-exact-head
+      JOB_PULL_API_KEY: runtime-local-pr8-final-exact-head
       JOBS_PAGE_SIZE: 25
-      RUNTIME_RUN_TOKEN: pr8-eac9a0e-${{ github.run_id }}-${{ github.run_attempt }}
+      RUNTIME_RUN_TOKEN: pr8-cf4a14f-${{ github.run_id }}-${{ github.run_attempt }}
       RUNTIME_BASE_URL: http://127.0.0.1:3000
       RUNTIME_EVIDENCE_DIR: qa/exact-head
 
     steps:
-      - name: Checkout exact reviewed source
+      - name: Checkout exact source
         uses: actions/checkout@v4
         with:
-          ref: eac9a0e18a1208e69ecb4445a5358f52e6adec8a
+          ref: cf4a14f0e61ca89fe0db496bd24e01589dc0f6d1
           path: source
           persist-credentials: false
 
@@ -46,13 +46,12 @@ jobs:
           cache: npm
           cache-dependency-path: source/package-lock.json
 
-      - name: Run static and connected-browser verification
+      - name: Run all static and browser gates
         working-directory: source
         shell: bash
         run: |
           set +e
           mkdir -p "$RUNTIME_EVIDENCE_DIR"
-
           npm ci --no-audit --no-fund > "$RUNTIME_EVIDENCE_DIR/npm-ci.log" 2>&1; npm_ci=$?
           npm run typecheck > "$RUNTIME_EVIDENCE_DIR/typecheck.log" 2>&1; typecheck=$?
           npm run lint > "$RUNTIME_EVIDENCE_DIR/lint.log" 2>&1; lint=$?
@@ -65,7 +64,6 @@ jobs:
           if [ "$build" -eq 0 ] && [ "$playwright_package" -eq 0 ] && [ "$playwright_browsers" -eq 0 ]; then
             npm run start -- --hostname 127.0.0.1 --port 3000 > "$RUNTIME_EVIDENCE_DIR/server.log" 2>&1 &
             server_pid=$!
-            echo "$server_pid" > "$RUNTIME_EVIDENCE_DIR/server.pid"
             for attempt in $(seq 1 90); do
               if curl --fail --silent "$RUNTIME_BASE_URL/jobs" >/dev/null; then server_start=0; break; fi
               sleep 1
@@ -78,7 +76,7 @@ jobs:
             kill "$server_pid" 2>/dev/null || true
           else
             printf 'Runtime skipped because setup failed.\n' > "$RUNTIME_EVIDENCE_DIR/runtime-browser.log"
-            printf 'Focused browser verification skipped because setup failed.\n' > "$RUNTIME_EVIDENCE_DIR/focused-browser.log"
+            printf 'Focused verification skipped because setup failed.\n' > "$RUNTIME_EVIDENCE_DIR/focused-browser.log"
             node tests/runtime-browser-cleanup.mjs > "$RUNTIME_EVIDENCE_DIR/cleanup.log" 2>&1; cleanup=$?
           fi
 
@@ -88,74 +86,66 @@ jobs:
             --argjson playwrightPackage "$playwright_package" --argjson playwrightBrowsers "$playwright_browsers" \
             --argjson serverStart "$server_start" --argjson runtimeBrowser "$runtime_browser" \
             --argjson focusedBrowser "$focused_browser" --argjson cleanup "$cleanup" \
-            '{sourceSha:$source,commandExitCodes:{npmCi:$npmCi,typecheck:$typecheck,lint:$lint,tests:$tests,build:$build,playwrightPackage:$playwrightPackage,playwrightBrowsers:$playwrightBrowsers,serverStart:$serverStart,runtimeBrowser:$runtimeBrowser,focusedBrowser:$focusedBrowser,cleanup:$cleanup}}' \
-            > "$RUNTIME_EVIDENCE_DIR/command-results.json"
+            '{sourceSha:$source,commandExitCodes:{npmCi:$npmCi,typecheck:$typecheck,lint:$lint,tests:$tests,build:$build,playwrightPackage:$playwrightPackage,playwrightBrowsers:$playwrightBrowsers,serverStart:$serverStart,runtimeBrowser:$runtimeBrowser,focusedBrowser:$focusedBrowser,cleanup:$cleanup}}' > "$RUNTIME_EVIDENCE_DIR/command-results.json"
 
           python - <<'PY'
           import json
           from datetime import datetime, timezone
           from pathlib import Path
-          evidence_dir = Path('qa/exact-head')
-          command = json.loads((evidence_dir / 'command-results.json').read_text())
-          def read_json(name):
-              path = evidence_dir / name
+          root = Path('qa/exact-head')
+          command = json.loads((root/'command-results.json').read_text())
+          def load(name):
+              path=root/name
               return json.loads(path.read_text()) if path.exists() else None
-          runtime = read_json('runtime-browser-evidence.json')
-          focused = read_json('review-fix-browser-evidence.json')
-          codes = command['commandExitCodes']
-          runtime_summary = runtime.get('summary') if runtime else None
-          focused_checks = focused.get('checks', []) if focused else []
-          focused_failed = sum(1 for check in focused_checks if not check.get('passed'))
-          focused_summary = {'total': len(focused_checks), 'passed': len(focused_checks)-focused_failed, 'failed': focused_failed} if focused else None
-          final_go = all(value == 0 for value in codes.values()) and runtime_summary is not None and runtime_summary.get('failed') == 0 and focused_summary is not None and focused_summary.get('failed') == 0
-          cleanup_log = (evidence_dir / 'cleanup.log').read_text(errors='replace') if (evidence_dir / 'cleanup.log').exists() else ''
-          summary = {'generatedAt': datetime.now(timezone.utc).isoformat(), 'sourceSha': command['sourceSha'], 'commandExitCodes': codes, 'runtimeSummary': runtime_summary, 'focusedSummary': focused_summary, 'cleanupTail': cleanup_log[-1500:], 'finalGo': final_go, 'mergePerformed': False, 'deploymentPerformed': False}
-          (evidence_dir / 'EXACT_HEAD_VERIFICATION.json').write_text(json.dumps(summary, indent=2))
-          lines = ['# PR 8 Updated Exact-Head Connected Verification','',f"- Source SHA: `{summary['sourceSha']}`",f"- Final result: **{'GO' if final_go else 'HOLD'}**",f"- Runtime browser: `{runtime_summary}`",f"- Focused browser: `{focused_summary}`",'- Merge performed: **no**','- Deployment performed: **no**','','## Command exit codes','']
-          lines.extend(f"- {name}: `{code}`" for name, code in codes.items())
-          lines.extend(['','## Cleanup evidence','','```text',summary['cleanupTail'],'```',''])
-          (evidence_dir / 'EXACT_HEAD_VERIFICATION.md').write_text('\n'.join(lines))
+          runtime=load('runtime-browser-evidence.json')
+          focused=load('review-fix-browser-evidence.json')
+          codes=command['commandExitCodes']
+          runtime_summary=runtime.get('summary') if runtime else None
+          checks=focused.get('checks',[]) if focused else []
+          failed=sum(1 for check in checks if not check.get('passed'))
+          focused_summary={'total':len(checks),'passed':len(checks)-failed,'failed':failed} if focused else None
+          cleanup=(root/'cleanup.log').read_text(errors='replace') if (root/'cleanup.log').exists() else ''
+          final_go=all(code==0 for code in codes.values()) and runtime_summary is not None and runtime_summary.get('failed')==0 and focused_summary is not None and focused_summary.get('failed')==0
+          summary={'generatedAt':datetime.now(timezone.utc).isoformat(),'sourceSha':command['sourceSha'],'commandExitCodes':codes,'runtimeSummary':runtime_summary,'focusedSummary':focused_summary,'cleanupTail':cleanup[-1500:],'finalGo':final_go,'mergePerformed':False,'deploymentPerformed':False}
+          (root/'EXACT_HEAD_VERIFICATION.json').write_text(json.dumps(summary,indent=2))
+          (root/'EXACT_HEAD_VERIFICATION.md').write_text('\n'.join(['# PR 8 Final Exact-Head Connected Verification','',f"- Source SHA: `{summary['sourceSha']}`",f"- Final result: **{'GO' if final_go else 'HOLD'}**",f"- Runtime browser: `{runtime_summary}`",f"- Focused browser: `{focused_summary}`",'- Merge performed: **no**','- Production deployment performed: **no**','','## Command exits','',*[f"- {name}: `{code}`" for name,code in codes.items()],'','## Cleanup','','```text',summary['cleanupTail'],'```','']))
           PY
-
-          tar -czf "$RUNTIME_EVIDENCE_DIR/pr8-updated-exact-head-evidence.tar.gz" -C "$RUNTIME_EVIDENCE_DIR" .
-          sha256sum "$RUNTIME_EVIDENCE_DIR/pr8-updated-exact-head-evidence.tar.gz" > "$RUNTIME_EVIDENCE_DIR/pr8-updated-exact-head-evidence.sha256"
           jq -r '.finalGo' "$RUNTIME_EVIDENCE_DIR/EXACT_HEAD_VERIFICATION.json" > "$RUNTIME_EVIDENCE_DIR/final-go.txt"
 
-      - name: Upload connected verification evidence
+      - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pr8-updated-exact-head-connected-evidence-${{ github.run_id }}
+          name: pr8-final-exact-head-connected-evidence-${{ github.run_id }}
           path: source/qa/exact-head
           if-no-files-found: error
           retention-days: 14
 
-      - name: Checkout verification branch for durable summary
+      - name: Checkout verification branch for summary
         if: always()
         uses: actions/checkout@v4
         with:
           ref: verification/pr8-9097f87
           path: report
 
-      - name: Commit durable verification summary
+      - name: Commit durable summary
         if: always()
         shell: bash
         run: |
-          mkdir -p report/verification-output/pr8-eac9a0e
-          cp source/qa/exact-head/EXACT_HEAD_VERIFICATION.json report/verification-output/pr8-eac9a0e/
-          cp source/qa/exact-head/EXACT_HEAD_VERIFICATION.md report/verification-output/pr8-eac9a0e/
-          cp source/qa/exact-head/runtime-browser-evidence.json report/verification-output/pr8-eac9a0e/ 2>/dev/null || true
-          cp source/qa/exact-head/review-fix-browser-evidence.json report/verification-output/pr8-eac9a0e/ 2>/dev/null || true
-          cp source/qa/exact-head/cleanup.log report/verification-output/pr8-eac9a0e/ 2>/dev/null || true
-          cp source/qa/exact-head/pr8-updated-exact-head-evidence.sha256 report/verification-output/pr8-eac9a0e/ 2>/dev/null || true
+          mkdir -p report/verification-output/pr8-cf4a14f
+          cp source/qa/exact-head/EXACT_HEAD_VERIFICATION.json report/verification-output/pr8-cf4a14f/
+          cp source/qa/exact-head/EXACT_HEAD_VERIFICATION.md report/verification-output/pr8-cf4a14f/
+          cp source/qa/exact-head/runtime-browser-evidence.json report/verification-output/pr8-cf4a14f/ 2>/dev/null || true
+          cp source/qa/exact-head/review-fix-browser-evidence.json report/verification-output/pr8-cf4a14f/ 2>/dev/null || true
+          cp source/qa/exact-head/cleanup.log report/verification-output/pr8-cf4a14f/ 2>/dev/null || true
           cd report
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add verification-output/pr8-eac9a0e
-          git commit -m "test: record updated PR 8 exact-head verification" || true
+          git add verification-output/pr8-cf4a14f
+          git commit -m "test: record final PR 8 exact-head verification" || true
           git push origin HEAD:verification/pr8-9097f87
 
-      - name: Enforce exact-head verification result
+      - name: Enforce result
         if: always()
         shell: bash
         run: test "$(cat source/qa/exact-head/final-go.txt)" = "true"
