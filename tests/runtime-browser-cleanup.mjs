@@ -5,8 +5,10 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 const evidenceDir = process.env.RUNTIME_EVIDENCE_DIR ?? 'qa/runtime-browser'
 
-assert(supabaseUrl, 'NEXT_PUBLIC_SUPABASE_URL is required')
-assert(supabaseKey, 'NEXT_PUBLIC_SUPABASE_ANON_KEY is required')
+if (!supabaseUrl || !supabaseKey) {
+  console.log('Supabase credentials are not configured; no runtime fixtures could have been created.')
+  process.exit(0)
+}
 
 async function rest(path, method = 'GET') {
   const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
