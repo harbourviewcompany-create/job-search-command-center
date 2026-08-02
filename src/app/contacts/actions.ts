@@ -11,16 +11,18 @@ import {
 import { getProfile } from '@/lib/profile'
 import type { OutreachType } from '@/types/database'
 
-export async function addContact(input: {
+type ServiceClient = ReturnType<typeof createServiceClient>
+
+interface ContactInput {
   companyId: string
   name: string
   title?: string
   email?: string
   linkedinUrl?: string
   source?: string
-}) {
-  await requireOperatorAccess()
-  const supabase = createServiceClient()
+}
+
+async function insertContact(supabase: ServiceClient, input: ContactInput) {
   const { data, error } = await supabase
     .from('contacts')
     .insert({
@@ -35,9 +37,13 @@ export async function addContact(input: {
     .single()
 
   if (error) throw new Error(error.message)
-
   revalidatePath('/contacts')
   return data
+}
+
+export async function addContact(input: ContactInput) {
+  await requireOperatorAccess()
+  return insertContact(createServiceClient(), input)
 }
 
 export async function addCompanyAndContact(input: {
@@ -70,22 +76,13 @@ export async function addCompanyAndContact(input: {
     companyId = created.id
   }
 
-  const { data, error } = await supabase
-    .from('contacts')
-    .insert({
-      company_id: companyId,
-      name: input.name.trim(),
-      title: input.title?.trim() || null,
-      email: input.email?.trim() || null,
-      linkedin_url: input.linkedinUrl?.trim() || null,
-      source: 'manual',
-    })
-    .select('id')
-    .single()
-
-  if (error) throw new Error(error.message)
-  revalidatePath('/contacts')
-  return data
+  return insertContact(supabase, {
+    companyId,
+    name: input.name,
+    title: input.title,
+    email: input.email,
+    linkedinUrl: input.linkedinUrl,
+  })
 }
 
 export async function lookupApolloContacts(companyName: string, companyId?: string) {
