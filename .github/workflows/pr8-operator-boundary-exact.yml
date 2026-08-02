@@ -8,11 +8,11 @@ on:
       - .github/workflows/pr8-operator-boundary-exact.yml
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: pr8-operator-boundary-exact-head
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   verify:
@@ -40,13 +40,6 @@ jobs:
           path: source
           persist-credentials: false
 
-      - name: Validate connected credentials
-        shell: bash
-        run: |
-          test -n "$NEXT_PUBLIC_SUPABASE_URL"
-          test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY"
-          test -n "$SUPABASE_SERVICE_ROLE_KEY"
-
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
@@ -54,88 +47,131 @@ jobs:
           cache: npm
           cache-dependency-path: source/package-lock.json
 
-      - name: Install committed dependencies
-        working-directory: source
-        run: npm ci --no-audit --no-fund
-
-      - name: Typecheck
-        working-directory: source
-        run: npm run typecheck
-
-      - name: Lint
-        working-directory: source
-        run: npm run lint
-
-      - name: Unit tests
-        working-directory: source
-        run: npm test
-
-      - name: Production build
-        working-directory: source
-        run: npm run build
-
-      - name: Verify database operator boundary
-        working-directory: source
-        run: node tests/operator-boundary-verification.mjs
-
-      - name: Install browser runtime
-        working-directory: source
-        run: |
-          npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright@1.54.1
-          npx playwright@1.54.1 install --with-deps chromium webkit
-
-      - name: Start production runtime
+      - name: Execute complete exact-head verification
         working-directory: source
         shell: bash
         run: |
+          set +e
           mkdir -p "$RUNTIME_EVIDENCE_DIR"
-          npm run start -- --hostname 127.0.0.1 --port 3000 > "$RUNTIME_EVIDENCE_DIR/server.log" 2>&1 &
-          echo $! > "$RUNTIME_EVIDENCE_DIR/server.pid"
-          for attempt in $(seq 1 90); do
-            if curl --fail --silent "$RUNTIME_BASE_URL/jobs" >/dev/null; then exit 0; fi
-            sleep 1
-          done
-          cat "$RUNTIME_EVIDENCE_DIR/server.log"
-          exit 1
 
-      - name: Deterministic connected browser verification
-        working-directory: source
-        timeout-minutes: 35
-        run: GITHUB_SHA="$SOURCE_SHA" node tests/runtime-browser-verification.mjs
+          test -n "$NEXT_PUBLIC_SUPABASE_URL" && test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" && test -n "$SUPABASE_SERVICE_ROLE_KEY"
+          credentials=$?
 
-      - name: Focused authorization and filter verification
-        working-directory: source
-        timeout-minutes: 10
-        run: GITHUB_SHA="$SOURCE_SHA" node tests/review-fix-browser-verification.mjs
+          npm ci --no-audit --no-fund > "$RUNTIME_EVIDENCE_DIR/npm-ci.log" 2>&1
+          npm_ci=$?
+          npm run typecheck > "$RUNTIME_EVIDENCE_DIR/typecheck.log" 2>&1
+          typecheck=$?
+          npm run lint > "$RUNTIME_EVIDENCE_DIR/lint.log" 2>&1
+          lint=$?
+          npm test > "$RUNTIME_EVIDENCE_DIR/tests.log" 2>&1
+          tests=$?
+          npm run build > "$RUNTIME_EVIDENCE_DIR/build.log" 2>&1
+          build=$?
 
-      - name: Independently clean runtime fixtures
-        if: always()
-        working-directory: source
-        run: node tests/runtime-browser-cleanup-service.mjs
+          boundary=1
+          browser_package=1
+          browser_install=1
+          server=1
+          runtime=1
+          focused=1
+          cleanup=1
 
-      - name: Stop production runtime
-        if: always()
-        working-directory: source
-        shell: bash
-        run: |
-          if [ -f "$RUNTIME_EVIDENCE_DIR/server.pid" ]; then
-            kill "$(cat "$RUNTIME_EVIDENCE_DIR/server.pid")" 2>/dev/null || true
+          if [ "$credentials" -eq 0 ] && [ "$npm_ci" -eq 0 ]; then
+            node tests/operator-boundary-verification.mjs > "$RUNTIME_EVIDENCE_DIR/operator-boundary.log" 2>&1
+            boundary=$?
+            npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright@1.54.1 > "$RUNTIME_EVIDENCE_DIR/playwright-package.log" 2>&1
+            browser_package=$?
+            npx playwright@1.54.1 install --with-deps chromium webkit > "$RUNTIME_EVIDENCE_DIR/playwright-install.log" 2>&1
+            browser_install=$?
           fi
 
-      - name: Write summary
-        if: always()
-        working-directory: source
-        shell: bash
-        run: |
-          mkdir -p "$RUNTIME_EVIDENCE_DIR"
-          cat > "$RUNTIME_EVIDENCE_DIR/EXACT_HEAD.md" <<EOF
-          # PR 8 operator-boundary exact-head verification
+          if [ "$build" -eq 0 ] && [ "$boundary" -eq 0 ] && [ "$browser_package" -eq 0 ] && [ "$browser_install" -eq 0 ]; then
+            npm run start -- --hostname 127.0.0.1 --port 3000 > "$RUNTIME_EVIDENCE_DIR/server.log" 2>&1 &
+            server_pid=$!
+            echo "$server_pid" > "$RUNTIME_EVIDENCE_DIR/server.pid"
+            for attempt in $(seq 1 90); do
+              if curl --fail --silent "$RUNTIME_BASE_URL/jobs" >/dev/null; then
+                server=0
+                break
+              fi
+              sleep 1
+            done
 
-          - Source SHA: \`$SOURCE_SHA\`
-          - Workflow run: \`${GITHUB_RUN_ID}\`
-          - Merge performed: \`no\`
-          - Production deployment performed: \`no\`
-          EOF
+            if [ "$server" -eq 0 ]; then
+              GITHUB_SHA="$SOURCE_SHA" node tests/runtime-browser-verification.mjs > "$RUNTIME_EVIDENCE_DIR/runtime.log" 2>&1
+              runtime=$?
+              GITHUB_SHA="$SOURCE_SHA" node tests/review-fix-browser-verification.mjs > "$RUNTIME_EVIDENCE_DIR/focused.log" 2>&1
+              focused=$?
+            fi
+
+            node tests/runtime-browser-cleanup-service.mjs > "$RUNTIME_EVIDENCE_DIR/cleanup.log" 2>&1
+            cleanup=$?
+            kill "$server_pid" 2>/dev/null || true
+          elif [ "$credentials" -eq 0 ]; then
+            node tests/runtime-browser-cleanup-service.mjs > "$RUNTIME_EVIDENCE_DIR/cleanup.log" 2>&1
+            cleanup=$?
+          fi
+
+          jq -n \
+            --arg source "$SOURCE_SHA" \
+            --arg run "$GITHUB_RUN_ID" \
+            --argjson credentials "$credentials" \
+            --argjson npmCi "$npm_ci" \
+            --argjson typecheck "$typecheck" \
+            --argjson lint "$lint" \
+            --argjson tests "$tests" \
+            --argjson build "$build" \
+            --argjson boundary "$boundary" \
+            --argjson browserPackage "$browser_package" \
+            --argjson browserInstall "$browser_install" \
+            --argjson server "$server" \
+            --argjson runtime "$runtime" \
+            --argjson focused "$focused" \
+            --argjson cleanup "$cleanup" \
+            '{sourceSha:$source,workflowRun:$run,exitCodes:{credentials:$credentials,npmCi:$npmCi,typecheck:$typecheck,lint:$lint,tests:$tests,build:$build,operatorBoundary:$boundary,browserPackage:$browserPackage,browserInstall:$browserInstall,server:$server,runtime:$runtime,focused:$focused,cleanup:$cleanup},mergePerformed:false,productionDeploymentPerformed:false}' \
+            > "$RUNTIME_EVIDENCE_DIR/command-results.json"
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path('qa/pr8-operator-boundary')
+          summary = json.loads((root / 'command-results.json').read_text())
+
+          def load_json(name):
+              path = root / name
+              return json.loads(path.read_text()) if path.exists() else None
+
+          runtime = load_json('runtime-browser-evidence.json')
+          focused = load_json('review-fix-browser-evidence.json')
+          boundary = load_json('operator-boundary-evidence.json')
+          codes = summary['exitCodes']
+          summary['runtimeSummary'] = runtime.get('summary') if runtime else None
+          focused_checks = focused.get('checks', []) if focused else []
+          summary['focusedSummary'] = {
+              'total': len(focused_checks),
+              'passed': sum(1 for check in focused_checks if check.get('passed')),
+              'failed': sum(1 for check in focused_checks if not check.get('passed')),
+          } if focused else None
+          boundary_checks = boundary.get('checks', []) if boundary else []
+          summary['operatorBoundarySummary'] = {
+              'total': len(boundary_checks),
+              'passed': sum(1 for check in boundary_checks if check.get('passed')),
+              'failed': sum(1 for check in boundary_checks if not check.get('passed')),
+          } if boundary else None
+          cleanup = (root / 'cleanup.log').read_text(errors='replace') if (root / 'cleanup.log').exists() else ''
+          summary['cleanupTail'] = cleanup[-1200:]
+          summary['finalGo'] = (
+              all(code == 0 for code in codes.values())
+              and summary['runtimeSummary'] is not None
+              and summary['runtimeSummary'].get('failed') == 0
+              and summary['focusedSummary'] is not None
+              and summary['focusedSummary'].get('failed') == 0
+              and summary['operatorBoundarySummary'] is not None
+              and summary['operatorBoundarySummary'].get('failed') == 0
+          )
+          (root / 'summary.json').write_text(json.dumps(summary, indent=2))
+          PY
 
       - name: Upload evidence
         if: always()
@@ -145,3 +181,33 @@ jobs:
           path: source/qa/pr8-operator-boundary
           if-no-files-found: error
           retention-days: 14
+
+      - name: Checkout evidence branch
+        if: always()
+        uses: actions/checkout@v4
+        with:
+          ref: maintenance/pr8-operator-boundary
+          path: report
+
+      - name: Persist summary on deployment-disabled helper branch
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p report/verification-output/pr8-operator-boundary
+          cp source/qa/pr8-operator-boundary/summary.json report/verification-output/pr8-operator-boundary/
+          cp source/qa/pr8-operator-boundary/operator-boundary-evidence.json report/verification-output/pr8-operator-boundary/ 2>/dev/null || true
+          cp source/qa/pr8-operator-boundary/runtime-browser-evidence.json report/verification-output/pr8-operator-boundary/ 2>/dev/null || true
+          cp source/qa/pr8-operator-boundary/review-fix-browser-evidence.json report/verification-output/pr8-operator-boundary/ 2>/dev/null || true
+          cp source/qa/pr8-operator-boundary/cleanup.log report/verification-output/pr8-operator-boundary/ 2>/dev/null || true
+          cd report
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add verification-output/pr8-operator-boundary
+          git commit -m "test: record PR 8 operator-boundary exact-head verification" || true
+          git push origin HEAD:maintenance/pr8-operator-boundary
+
+      - name: Enforce exact-head result
+        if: always()
+        working-directory: source
+        shell: bash
+        run: test "$(jq -r '.finalGo' "$RUNTIME_EVIDENCE_DIR/summary.json")" = "true"
