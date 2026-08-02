@@ -9,10 +9,33 @@ import {
 import { createClient } from '@/lib/supabase/server'
 
 /**
+ * Allows deterministic CI to exercise server actions without a real user.
+ * The bypass is disabled on Vercel and requires an explicit loopback runtime,
+ * GitHub Actions, CI mode, and an ephemeral runtime-local key.
+ */
+export function isDeterministicOperatorVerification() {
+  const runtimeBaseUrl = process.env.RUNTIME_BASE_URL ?? ''
+  const isLoopback =
+    runtimeBaseUrl.startsWith('http://127.0.0.1:') ||
+    runtimeBaseUrl.startsWith('http://localhost:')
+
+  return (
+    process.env.GITHUB_ACTIONS === 'true' &&
+    process.env.CI === 'true' &&
+    process.env.VERCEL !== '1' &&
+    !process.env.VERCEL_ENV &&
+    isLoopback &&
+    Boolean(process.env.JOB_PULL_API_KEY?.startsWith('runtime-local-'))
+  )
+}
+
+/**
  * Requires either an authenticated Supabase user or the signed single-user
  * operator-access cookie before a server action may mutate pipeline data.
  */
 export async function requireOperatorAccess() {
+  if (isDeterministicOperatorVerification()) return
+
   const supabase = await createClient()
   const { data, error } = await supabase.auth.getUser()
   if (!error && data.user) return
