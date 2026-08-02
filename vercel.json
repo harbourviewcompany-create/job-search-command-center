@@ -2,7 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
-      "internal-ui-remediation-20260731": false
+      "internal-ui-remediation-20260731": false,
+      "maintenance/pr8-operator-boundary": false
     }
   }
 }
