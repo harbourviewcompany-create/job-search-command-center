@@ -1,6 +1,7 @@
 'use client'
 
-import { useTransition } from 'react'
+import { useState, useTransition } from 'react'
+import Link from 'next/link'
 import { saveSettings } from '@/app/settings/actions'
 
 interface Props {
@@ -19,11 +20,26 @@ export function SettingsForm({
   baseResume,
 }: Props) {
   const [pending, startTransition] = useTransition()
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const formData = new FormData(e.currentTarget)
-    startTransition(() => saveSettings(formData))
+    setError(null)
+    setSaved(false)
+    startTransition(async () => {
+      try {
+        await saveSettings(formData)
+        setSaved(true)
+      } catch (caughtError) {
+        setError(
+          caughtError instanceof Error && caughtError.message
+            ? caughtError.message
+            : 'Settings could not be saved.'
+        )
+      }
+    })
   }
 
   return (
@@ -105,9 +121,20 @@ export function SettingsForm({
         />
       </section>
 
-      <button type="submit" disabled={pending} className="btn-primary">
-        {pending ? 'Saving…' : 'Save settings'}
-      </button>
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="submit" disabled={pending} className="btn-primary">
+          {pending ? 'Saving…' : 'Save settings'}
+        </button>
+        {saved && <span className="text-sm text-emerald-600">Settings saved</span>}
+      </div>
+      {error && (
+        <p role="alert" className="text-sm leading-6 text-red-700">
+          {error}{' '}
+          <Link href="/jobs" className="font-semibold underline underline-offset-2">
+            Open Jobs to unlock operator access.
+          </Link>
+        </p>
+      )}
     </form>
   )
 }
