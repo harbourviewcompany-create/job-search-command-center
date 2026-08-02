@@ -7,6 +7,7 @@ import {
   verifyJobPullAccessToken,
   verifyJobPullServiceKey,
 } from '@/lib/job-pull-auth'
+import { isDeterministicOperatorVerification } from '@/lib/operator-auth'
 import { createClient } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
@@ -25,12 +26,15 @@ export async function GET(request: NextRequest) {
   const cookieAuthorized = verifyJobPullAccessToken(
     request.cookies.get(JOB_PULL_ACCESS_COOKIE)?.value ?? null
   )
+  const verificationAuthorized = isDeterministicOperatorVerification()
 
   return NextResponse.json({
     ok: true,
+    authorized: sessionAuthorized || cookieAuthorized || verificationAuthorized,
     sessionAuthorized,
     cookieAuthorized,
-    canLock: cookieAuthorized && !sessionAuthorized,
+    verificationAuthorized,
+    canLock: cookieAuthorized && !sessionAuthorized && !verificationAuthorized,
   })
 }
 
