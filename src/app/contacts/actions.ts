@@ -1,7 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { requireOperatorAccess } from '@/lib/operator-auth'
+import { createServiceClient } from '@/lib/supabase/server'
 import { searchApolloPeople } from '@/lib/apollo'
 import {
   draftOutreachWithAI,
@@ -18,7 +19,8 @@ export async function addContact(input: {
   linkedinUrl?: string
   source?: string
 }) {
-  const supabase = await createClient()
+  await requireOperatorAccess()
+  const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('contacts')
     .insert({
@@ -45,7 +47,8 @@ export async function addCompanyAndContact(input: {
   email?: string
   linkedinUrl?: string
 }) {
-  const supabase = await createClient()
+  await requireOperatorAccess()
+  const supabase = createServiceClient()
   const companyName = input.companyName.trim()
 
   let companyId: string
@@ -67,25 +70,34 @@ export async function addCompanyAndContact(input: {
     companyId = created.id
   }
 
-  return addContact({
-    companyId,
-    name: input.name,
-    title: input.title,
-    email: input.email,
-    linkedinUrl: input.linkedinUrl,
-    source: 'manual',
-  })
+  const { data, error } = await supabase
+    .from('contacts')
+    .insert({
+      company_id: companyId,
+      name: input.name.trim(),
+      title: input.title?.trim() || null,
+      email: input.email?.trim() || null,
+      linkedin_url: input.linkedinUrl?.trim() || null,
+      source: 'manual',
+    })
+    .select('id')
+    .single()
+
+  if (error) throw new Error(error.message)
+  revalidatePath('/contacts')
+  return data
 }
 
 export async function lookupApolloContacts(companyName: string, companyId?: string) {
+  await requireOperatorAccess()
   const result = await searchApolloPeople({ companyName, limit: 5 })
   if (result.error) return result
 
   if (!companyId || result.people.length === 0) return result
 
-  const supabase = await createClient()
+  const supabase = createServiceClient()
   for (const person of result.people) {
-    await supabase.from('contacts').insert({
+    const { error } = await supabase.from('contacts').insert({
       company_id: companyId,
       name: person.name,
       title: person.title,
@@ -93,6 +105,7 @@ export async function lookupApolloContacts(companyName: string, companyId?: stri
       linkedin_url: person.linkedin_url,
       source: 'apollo',
     })
+    if (error) throw new Error(error.message)
   }
 
   revalidatePath('/contacts')
@@ -108,7 +121,8 @@ export async function createOutreachDraft(input: {
   jobTitle?: string | null
   contactName?: string | null
 }) {
-  const supabase = await createClient()
+  await requireOperatorAccess()
+  const supabase = createServiceClient()
   const profile = await getProfile(supabase)
 
   let contactName = input.contactName
@@ -158,7 +172,8 @@ export async function createOutreachDraft(input: {
 }
 
 export async function markOutreachSent(outreachId: string, applicationId: string) {
-  const supabase = await createClient()
+  await requireOperatorAccess()
+  const supabase = createServiceClient()
   const { error } = await supabase
     .from('outreach_messages')
     .update({
