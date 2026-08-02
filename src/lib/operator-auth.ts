@@ -8,20 +8,11 @@ import {
 } from '@/lib/job-pull-auth'
 import { createClient } from '@/lib/supabase/server'
 
-function isDeterministicRuntime() {
-  return (
-    process.env.GITHUB_ACTIONS === 'true' &&
-    Boolean(process.env.JOB_PULL_API_KEY?.startsWith('runtime-local-'))
-  )
-}
-
 /**
  * Requires either an authenticated Supabase user or the signed single-user
  * operator-access cookie before a server action may mutate pipeline data.
  */
 export async function requireOperatorAccess() {
-  if (isDeterministicRuntime()) return
-
   const supabase = await createClient()
   const { data, error } = await supabase.auth.getUser()
   if (!error && data.user) return
