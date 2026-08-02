@@ -2,8 +2,6 @@
 -- Browser clients keep the read access required by the current single-user UI.
 -- All mutations require the server-only service role after operator authorization.
 
-BEGIN;
-
 GRANT USAGE ON SCHEMA job_search TO anon, authenticated, service_role;
 
 -- Remove direct client mutation privileges from every current table, including
@@ -63,5 +61,3 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA job_search
   GRANT ALL PRIVILEGES ON TABLES TO service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA job_search
   GRANT ALL PRIVILEGES ON SEQUENCES TO service_role;
-
-COMMIT;
