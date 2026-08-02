@@ -327,8 +327,6 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const adzunaAppId = Deno.env.get('ADZUNA_APP_ID')
-    const adzunaAppKey = Deno.env.get('ADZUNA_APP_KEY')
     const indeedPublisher = Deno.env.get('INDEED_PUBLISHER_ID')
     // RemoteOK is always on unless explicitly disabled
     const remoteOkEnabled = Deno.env.get('REMOTEOK_ENABLED') !== 'false'
@@ -337,6 +335,20 @@ Deno.serve(async (req) => {
       db: { schema: 'job_search' },
       auth: { persistSession: false },
     })
+
+    // Adzuna creds: prefer function secrets, fall back to Vault (job_search.get_adzuna_credentials)
+    let adzunaAppId = Deno.env.get('ADZUNA_APP_ID')
+    let adzunaAppKey = Deno.env.get('ADZUNA_APP_KEY')
+    if (!adzunaAppId || !adzunaAppKey) {
+      const { data: creds, error: credsError } = await supabase
+        .rpc('get_adzuna_credentials')
+        .maybeSingle()
+      if (credsError) {
+        console.error('get_adzuna_credentials RPC failed', credsError)
+      }
+      adzunaAppId = adzunaAppId || creds?.app_id || undefined
+      adzunaAppKey = adzunaAppKey || creds?.app_key || undefined
+    }
 
     const { data: setting } = await supabase
       .from('settings')
