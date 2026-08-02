@@ -2,14 +2,14 @@
 
 import { revalidatePath } from 'next/cache'
 import { requireOperatorAccess } from '@/lib/operator-auth'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server'
 import { scoreJobAgainstProfile } from '@/lib/scoring'
 import { getProfile } from '@/lib/profile'
 import { parseLinkedInJobId } from '@/lib/linkedin'
 
 export async function importLinkedInJob(formData: FormData) {
   await requireOperatorAccess()
-  const supabase = await createClient()
+  const supabase = createServiceClient()
 
   const url = String(formData.get('url') || '').trim()
   const title = String(formData.get('title') || '').trim()
