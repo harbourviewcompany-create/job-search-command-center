@@ -48,9 +48,9 @@ npm install
 ### 2. Supabase project
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. Open **SQL Editor** → paste and run `supabase/migrations/001_initial_schema.sql`.
-3. Copy **Project URL** and **anon key** (Settings → API).
-4. Optionally copy the **service_role** key for future Edge Functions / cron.
+2. Apply `supabase/migrations/001_initial_schema.sql`, `002_opportunity_centre.sql`, and `003_operator_boundary_rls.sql` in order.
+3. Copy the **Project URL**, **anon key**, and **service_role key** from Supabase project settings.
+4. Keep the service-role key server-only. Migration 003 makes browser database roles read-only and requires authorized server mutations to use the service role.
 
 ### 3. Environment
 
@@ -63,12 +63,14 @@ Fill in:
 ```text
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-SUPABASE_SERVICE_ROLE_KEY=eyJ...   # optional for Phase 1 UI
+SUPABASE_SERVICE_ROLE_KEY=eyJ...   # required, server-only
 JOB_PULL_API_KEY=<long-random-secret>
 JOB_PULL_SESSION_SECRET=<optional-independent-cookie-signing-secret>
 ```
 
-`JOB_PULL_API_KEY` is required for the current single-user deployment unless Supabase Auth has been wired. It protects browser-triggered job creation, LinkedIn imports, job/application status changes, rescoring, and manual provider pulls. Open `/jobs`, enter this value in the **Operator access key** field, and select **Unlock operator**. The server validates the key and issues a signed, HttpOnly, SameSite=Strict browser cookie for 12 hours; the key is not stored in browser-readable state. Select **Lock** to remove cookie-based access. A Supabase-authenticated session is also accepted automatically. `JOB_PULL_SESSION_SECRET` is optional; when omitted, `JOB_PULL_API_KEY` signs the access cookie.
+`SUPABASE_SERVICE_ROLE_KEY` is required for protected mutations and must never appear in client code or a `NEXT_PUBLIC_*` variable. The anon key can read the tables needed by the current UI, but migration 003 revokes its insert, update, delete, truncate, reference, trigger, and sequence privileges. Direct browser REST writes are denied by Postgres even when an application route is bypassed.
+
+`JOB_PULL_API_KEY` is required for the current single-user deployment unless Supabase Auth has been wired. It protects browser-triggered job creation, LinkedIn imports, job and application status changes, settings, contacts, packages, outreach, rescoring, and manual provider pulls. Open `/jobs`, enter this value in the **Operator access key** field, and select **Unlock operator**. The server validates the key and issues a signed, HttpOnly, SameSite=Strict browser cookie for 12 hours; the key is not stored in browser-readable state. Select **Lock** to remove cookie-based access. A Supabase-authenticated session is also accepted automatically. `JOB_PULL_SESSION_SECRET` is optional; when omitted, `JOB_PULL_API_KEY` signs the access cookie.
 
 ### 4. Run locally
 
@@ -87,7 +89,7 @@ Unlock operator access on `/jobs`, add a few jobs via **Add job manually**, mark
 1. Push this repo (already on GitHub).
 2. In [vercel.com](https://vercel.com) → **Add New Project** → import `harbourviewcompany-create/job-search-command-center`.
 3. Framework preset: **Next.js** (auto-detected).
-4. Add the same env vars as `.env.local`. `JOB_PULL_API_KEY` is required for the single-user no-auth configuration. Keep `JOB_PULL_API_KEY`, `JOB_PULL_SESSION_SECRET`, and `SUPABASE_SERVICE_ROLE_KEY` server-only; never prefix them with `NEXT_PUBLIC_`.
+4. Add the same env vars as `.env.local`. `JOB_PULL_API_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are required for the single-user configuration. Keep `JOB_PULL_API_KEY`, `JOB_PULL_SESSION_SECRET`, and `SUPABASE_SERVICE_ROLE_KEY` server-only; never prefix them with `NEXT_PUBLIC_`.
 5. Deploy. Production URL will be something like `https://job-search-command-center.vercel.app`.
 
 Vercel auto-deploys on every push to `main`.
@@ -109,7 +111,7 @@ Vercel auto-deploys on every push to `main`.
 
 ## Data model (summary)
 
-See `supabase/migrations/001_initial_schema.sql` for the full DDL. High-level:
+See `supabase/migrations/001_initial_schema.sql` for the base DDL and `003_operator_boundary_rls.sql` for database authorization. High-level:
 
 - **companies** — name, domain, notes  
 - **jobs** — source, title, description, url, status (`found` / `interested` / `dismissed`)  
@@ -119,7 +121,7 @@ See `supabase/migrations/001_initial_schema.sql` for the full DDL. High-level:
 - **outreach_messages** — drafts + sent log with cadence (Phase 3–4)  
 - **settings** — JSON blobs for search terms, offsets, base resume  
 
-Single-user for v1. RLS is not yet enforced, so browser mutations are protected by either a Supabase-authenticated session or the server-issued operator-access cookie described above.
+Single-user for v1. RLS is enabled. The anon and authenticated database roles have explicit read-only access to UI tables and no direct mutation privileges. Server Actions first require a Supabase-authenticated session or signed operator-access cookie, then perform writes through the server-only service-role client. New tables in the `job_search` schema are private by default until a migration explicitly grants access.
 
 ---
 
@@ -138,7 +140,7 @@ Supabase Edge Function on `pg_cron` (daily) calling Indeed + ZipRecruiter APIs w
 
 ## Open questions (from product spec)
 
-- Single-user only for v1 — the current operator key can later be replaced by full Supabase Auth and RLS.  
+- Single-user only for v1 — the operator key can later be replaced by full Supabase Auth and user-scoped RLS.  
 - Base resume stored as a markdown blob in `settings` for now; structured sections can be added when Phase 2 needs cleaner prompt construction.  
 - Apollo cost: confirm budget before wiring contact lookup in Phase 3.  
 
@@ -146,7 +148,8 @@ Supabase Edge Function on `pg_cron` (daily) calling Indeed + ZipRecruiter APIs w
 
 ## Development notes
 
-- Server Actions for mutations require operator authorization before writes.  
+- Server Actions require operator authorization before writes and use `createServiceClient()` only after that check.  
+- Browser-facing Supabase clients are read-only at both grants and RLS policy layers.  
 - Types in `src/types/database.ts` mirror the SQL schema.  
 - Tailwind + small set of utility classes (`btn-primary`, `card`, `input`, `badge`).  
 - No auto-apply / auto-send paths exist and should not be introduced without revisiting the non-goals.
