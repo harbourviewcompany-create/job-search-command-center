@@ -1,0 +1,26 @@
+{
+  "sourceSha": "93f6a0881df10b34240daeeb8ddaa7d06fe0d3b5",
+  "workflowRun": "30728022656",
+  "exitCodes": {
+    "credentials": 1,
+    "npmCi": 0,
+    "typecheck": 0,
+    "lint": 0,
+    "tests": 0,
+    "build": 0,
+    "operatorBoundary": 1,
+    "browserPackage": 1,
+    "browserInstall": 1,
+    "server": 1,
+    "runtime": 1,
+    "focused": 1,
+    "cleanup": 1
+  },
+  "mergePerformed": false,
+  "productionDeploymentPerformed": false,
+  "runtimeSummary": null,
+  "focusedSummary": null,
+  "operatorBoundarySummary": null,
+  "cleanupTail": "",
+  "finalGo": false
+}
