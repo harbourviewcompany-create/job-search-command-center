@@ -1,6 +1,6 @@
 'use client'
 
-import { useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { updateApplicationStatus } from '@/app/applications/actions'
 import { formatDate } from '@/lib/utils'
@@ -17,9 +17,27 @@ interface Props {
   app: ApplicationWithJob
 }
 
+function mutationError(error: unknown) {
+  return error instanceof Error && error.message
+    ? error.message
+    : 'The application could not be updated.'
+}
+
 export function ApplicationCard({ app }: Props) {
   const [pending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
   const next = NEXT_STATUS[app.status]
+
+  function changeStatus(status: ApplicationStatus) {
+    setError(null)
+    startTransition(async () => {
+      try {
+        await updateApplicationStatus(app.id, status)
+      } catch (caughtError) {
+        setError(mutationError(caughtError))
+      }
+    })
+  }
 
   return (
     <div
@@ -46,9 +64,7 @@ export function ApplicationCard({ app }: Props) {
           <button
             type="button"
             disabled={pending}
-            onClick={() =>
-              startTransition(() => updateApplicationStatus(app.id, next))
-            }
+            onClick={() => changeStatus(next)}
             className="btn-primary text-xs"
           >
             → {next}
@@ -58,9 +74,7 @@ export function ApplicationCard({ app }: Props) {
           <button
             type="button"
             disabled={pending}
-            onClick={() =>
-              startTransition(() => updateApplicationStatus(app.id, 'rejected'))
-            }
+            onClick={() => changeStatus('rejected')}
             className="btn-ghost text-xs text-red-600"
           >
             Rejected
@@ -77,6 +91,14 @@ export function ApplicationCard({ app }: Props) {
           </a>
         )}
       </div>
+      {error && (
+        <p role="alert" className="mt-3 text-xs leading-5 text-red-700">
+          {error}{' '}
+          <Link href="/jobs" className="font-semibold underline underline-offset-2">
+            Open Jobs to unlock operator access.
+          </Link>
+        </p>
+      )}
     </div>
   )
 }
