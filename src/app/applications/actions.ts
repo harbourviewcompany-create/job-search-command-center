@@ -1,14 +1,16 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { requireOperatorAccess } from '@/lib/operator-auth'
+import { createServiceClient } from '@/lib/supabase/server'
 import type { ApplicationStatus } from '@/types/database'
 
 export async function updateApplicationStatus(
   applicationId: string,
   status: ApplicationStatus
 ) {
-  const supabase = await createClient()
+  await requireOperatorAccess()
+  const supabase = createServiceClient()
 
   // Quality rule: do not mark Applied without a generated package
   if (status === 'applied') {
@@ -50,7 +52,8 @@ export async function updateApplicationNotes(
   applicationId: string,
   notes: string
 ) {
-  const supabase = await createClient()
+  await requireOperatorAccess()
+  const supabase = createServiceClient()
 
   const { error } = await supabase
     .from('applications')
