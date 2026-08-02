@@ -1,3 +1,19 @@
+export type JobStatus = 'found' | 'interested' | 'dismissed'
+export type ApplicationStatus =
+  | 'interested'
+  | 'tailoring'
+  | 'ready'
+  | 'applied'
+  | 'interview'
+  | 'offer'
+  | 'rejected'
+  | 'closed'
+export type JobSource = 'indeed' | 'ziprecruiter' | 'manual' | 'adzuna' | 'linkedin' | 'remoteok'
+export type OutreachType = 'initial' | 'follow_up_1' | 'follow_up_2' | 'thank_you'
+export type OutreachStatus = 'drafted' | 'sent' | 'replied'
+export type OpportunityCategory = 'freelance' | 'contract' | 'gig' | 'business' | 'grant' | 'service'
+export type OpportunityStatus = 'new' | 'evaluating' | 'active' | 'won' | 'lost' | 'dismissed'
+
 export type Json =
   | string
   | number
@@ -5,33 +21,6 @@ export type Json =
   | null
   | { [key: string]: Json | undefined }
   | Json[]
-
-export type JobStatus = 'found' | 'interested' | 'dismissed'
-export type ApplicationStatus =
-  | 'interested'
-  | 'applied'
-  | 'interview'
-  | 'offer'
-  | 'rejected'
-  | 'closed'
-export type OutreachType = 'initial' | 'follow_up_1' | 'follow_up_2'
-export type OutreachStatus = 'drafted' | 'sent' | 'skipped'
-export type JobSource =
-  | 'indeed'
-  | 'ziprecruiter'
-  | 'manual'
-  | 'adzuna'
-  | 'linkedin'
-  | 'remoteok'
-export type OpportunityType =
-  | 'job_lead'
-  | 'contract'
-  | 'freelance'
-  | 'productized_service'
-  | 'outreach'
-  | 'recruiting'
-  | 'marketplace'
-export type OpportunityStatus = 'active' | 'in_progress' | 'won' | 'dismissed' | 'expired'
 
 export interface Database {
   job_search: {
@@ -43,6 +32,7 @@ export interface Database {
           domain: string | null
           notes: string | null
           created_at: string
+          updated_at: string
         }
         Insert: {
           id?: string
@@ -50,6 +40,7 @@ export interface Database {
           domain?: string | null
           notes?: string | null
           created_at?: string
+          updated_at?: string
         }
         Update: {
           id?: string
@@ -57,6 +48,7 @@ export interface Database {
           domain?: string | null
           notes?: string | null
           created_at?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -74,6 +66,7 @@ export interface Database {
           url: string | null
           posted_at: string | null
           fetched_at: string
+          effective_at: string
           status: JobStatus
           fit_score: number | null
           fit_reasons: string[] | null
@@ -131,6 +124,8 @@ export interface Database {
           resume_version_id: string | null
           cover_note: string | null
           notes: string | null
+          next_follow_up_at: string | null
+          created_at: string
           updated_at: string
         }
         Insert: {
@@ -141,6 +136,8 @@ export interface Database {
           resume_version_id?: string | null
           cover_note?: string | null
           notes?: string | null
+          next_follow_up_at?: string | null
+          created_at?: string
           updated_at?: string
         }
         Update: {
@@ -151,6 +148,8 @@ export interface Database {
           resume_version_id?: string | null
           cover_note?: string | null
           notes?: string | null
+          next_follow_up_at?: string | null
+          created_at?: string
           updated_at?: string
         }
         Relationships: [
@@ -174,21 +173,21 @@ export interface Database {
         Row: {
           id: string
           application_id: string
-          content: string | null
+          content: string
           docx_url: string | null
           created_at: string
         }
         Insert: {
           id?: string
           application_id: string
-          content?: string | null
+          content: string
           docx_url?: string | null
           created_at?: string
         }
         Update: {
           id?: string
           application_id?: string
-          content?: string | null
+          content?: string
           docx_url?: string | null
           created_at?: string
         }
@@ -249,9 +248,8 @@ export interface Database {
           application_id: string
           contact_id: string | null
           type: OutreachType
-          draft_body: string | null
+          draft_body: string
           status: OutreachStatus
-          scheduled_for: string | null
           sent_at: string | null
           created_at: string
         }
@@ -260,9 +258,8 @@ export interface Database {
           application_id: string
           contact_id?: string | null
           type: OutreachType
-          draft_body?: string | null
+          draft_body: string
           status?: OutreachStatus
-          scheduled_for?: string | null
           sent_at?: string | null
           created_at?: string
         }
@@ -271,9 +268,8 @@ export interface Database {
           application_id?: string
           contact_id?: string | null
           type?: OutreachType
-          draft_body?: string | null
+          draft_body?: string
           status?: OutreachStatus
-          scheduled_for?: string | null
           sent_at?: string | null
           created_at?: string
         }
@@ -318,54 +314,51 @@ export interface Database {
       opportunities: {
         Row: {
           id: string
-          type: OpportunityType
           title: string
+          source: string
+          source_url: string | null
+          category: OpportunityCategory
           description: string | null
-          company_or_channel: string | null
-          estimated_value: string | null
-          effort: string | null
-          time_to_cash: string | null
+          estimated_value: number | null
+          estimated_hours: number | null
           fit_score: number | null
           fit_reasons: string[] | null
           status: OpportunityStatus
-          action_url: string | null
-          draft_pitch: string | null
+          deadline: string | null
           notes: string | null
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
-          type: OpportunityType
           title: string
+          source: string
+          source_url?: string | null
+          category: OpportunityCategory
           description?: string | null
-          company_or_channel?: string | null
-          estimated_value?: string | null
-          effort?: string | null
-          time_to_cash?: string | null
+          estimated_value?: number | null
+          estimated_hours?: number | null
           fit_score?: number | null
           fit_reasons?: string[] | null
           status?: OpportunityStatus
-          action_url?: string | null
-          draft_pitch?: string | null
+          deadline?: string | null
           notes?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
-          type?: OpportunityType
           title?: string
+          source?: string
+          source_url?: string | null
+          category?: OpportunityCategory
           description?: string | null
-          company_or_channel?: string | null
-          estimated_value?: string | null
-          effort?: string | null
-          time_to_cash?: string | null
+          estimated_value?: number | null
+          estimated_hours?: number | null
           fit_score?: number | null
           fit_reasons?: string[] | null
           status?: OpportunityStatus
-          action_url?: string | null
-          draft_pitch?: string | null
+          deadline?: string | null
           notes?: string | null
           created_at?: string
           updated_at?: string
@@ -373,19 +366,19 @@ export interface Database {
         Relationships: []
       }
     }
-    Views: Record<never, never>
-    Functions: Record<never, never>
-    Enums: Record<never, never>
-    CompositeTypes: Record<never, never>
+    Views: Record<string, never>
+    Functions: Record<string, never>
+    Enums: Record<string, never>
+    CompositeTypes: Record<string, never>
   }
 }
 
 export type Company = Database['job_search']['Tables']['companies']['Row']
 export type Job = Database['job_search']['Tables']['jobs']['Row']
 export type Application = Database['job_search']['Tables']['applications']['Row']
+export type ResumeVersion = Database['job_search']['Tables']['resume_versions']['Row']
 export type Contact = Database['job_search']['Tables']['contacts']['Row']
 export type OutreachMessage = Database['job_search']['Tables']['outreach_messages']['Row']
-export type Setting = Database['job_search']['Tables']['settings']['Row']
 export type Opportunity = Database['job_search']['Tables']['opportunities']['Row']
 
 export type JobWithCompany = Job & {
