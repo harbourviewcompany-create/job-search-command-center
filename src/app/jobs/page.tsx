@@ -15,6 +15,8 @@ export const dynamic = 'force-dynamic'
 
 const DEFAULT_PAGE_SIZE = 100
 const DATABASE_BATCH_SIZE = 1000
+const COMPANY_MATCH_LIMIT = 100
+const DERIVED_ROW_LIMIT = 5000
 const JOB_SOURCES: JobSource[] = ['indeed', 'ziprecruiter', 'manual', 'adzuna', 'linkedin', 'remoteok']
 const STATUS_FILTERS: JobStatusFilter[] = ['active', 'all', 'found', 'interested', 'dismissed']
 const ARRANGEMENT_FILTERS: JobArrangementFilter[] = ['all', 'remote', 'hybrid', 'location']
@@ -116,10 +118,15 @@ function statusValues(filters: JobFilterState) {
 
 async function matchingCompanyIds(query: string) {
   const patterns = searchPatterns(query)
-  if (patterns.length === 0) return { ids: [] as string[], error: null as string | null }
+  if (patterns.length === 0) {
+    return { ids: [] as string[], error: null as string | null, truncated: false }
+  }
 
   const supabase = await createClient()
-  let companyQuery = supabase.from('companies').select('id').limit(5000)
+  let companyQuery = supabase
+    .from('companies')
+    .select('id')
+    .limit(COMPANY_MATCH_LIMIT + 1)
   companyQuery = patterns.length === 1
     ? companyQuery.ilike('name', patterns[0].replaceAll('*', '%'))
     : companyQuery.or(
@@ -129,19 +136,35 @@ async function matchingCompanyIds(query: string) {
       )
 
   const { data, error } = await companyQuery
+  const ids = (data ?? []).map((company) => company.id)
+  const truncated = ids.length > COMPANY_MATCH_LIMIT
   return {
-    ids: (data ?? []).map((company) => company.id),
-    error: error?.message ?? null,
+    ids: ids.slice(0, COMPANY_MATCH_LIMIT),
+    error:
+      error?.message ??
+      (truncated
+        ? `Company-name search exceeded ${COMPANY_MATCH_LIMIT} matches; refine the query for complete results.`
+        : null),
+    truncated,
   }
 }
 
 function applyDatabaseOrder<T extends {
   order: (column: string, options?: { ascending?: boolean; nullsFirst?: boolean }) => T
-}>(query: T) {
+}>(query: T, sort: JobSort) {
+  if (sort === 'newest') {
+    return query
+      .order('effective_at', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: true })
+  }
+  if (sort === 'oldest') {
+    return query
+      .order('effective_at', { ascending: true, nullsFirst: false })
+      .order('id', { ascending: true })
+  }
   return query
     .order('fit_score', { ascending: false, nullsFirst: false })
-    .order('posted_at', { ascending: false, nullsFirst: false })
-    .order('fetched_at', { ascending: false })
+    .order('effective_at', { ascending: false, nullsFirst: false })
     .order('id', { ascending: true })
 }
 
@@ -184,15 +207,25 @@ async function loadDatabasePage(
   if (clauses.length > 0) dataQuery = dataQuery.or(clauses.join(','))
 
   const from = (page - 1) * pageSize
-  const { data, error } = await applyDatabaseOrder(dataQuery)
+  const { data, error } = await applyDatabaseOrder(dataQuery, filters.sort)
     .range(from, from + pageSize - 1)
 
+  if (error) {
+    return {
+      rows: [] as JobWithCompany[],
+      total: 0,
+      page: 1,
+      totalPages: 1,
+      error: error.message,
+    }
+  }
+
   return {
-    rows: error ? [] : ((data ?? []) as JobWithCompany[]),
+    rows: (data ?? []) as JobWithCompany[],
     total,
     page,
     totalPages,
-    error: error?.message ?? null,
+    error: null as string | null,
   }
 }
 
@@ -206,7 +239,34 @@ async function loadDerivedPage(
   const rows: JobWithCompany[] = []
   const clauses = jobSearchClauses(searchPatterns(filters.query), companyIds)
 
-  for (let from = 0; ; from += DATABASE_BATCH_SIZE) {
+  let countQuery = supabase
+    .from('jobs')
+    .select('id', { count: 'exact', head: true })
+    .in('status', statusValues(filters))
+  if (filters.source !== 'all') countQuery = countQuery.eq('source', filters.source)
+  if (clauses.length > 0) countQuery = countQuery.or(clauses.join(','))
+
+  const { count: candidateCount, error: countError } = await countQuery
+  if (countError) {
+    return {
+      rows: [] as JobWithCompany[],
+      total: 0,
+      page: 1,
+      totalPages: 1,
+      error: countError.message,
+    }
+  }
+  if ((candidateCount ?? 0) > DERIVED_ROW_LIMIT) {
+    return {
+      rows: [] as JobWithCompany[],
+      total: 0,
+      page: 1,
+      totalPages: 1,
+      error: `This computed filter matches more than ${DERIVED_ROW_LIMIT} jobs. Refine the filters before sorting by company or arrangement.`,
+    }
+  }
+
+  for (let from = 0; from < (candidateCount ?? 0); from += DATABASE_BATCH_SIZE) {
     let query = supabase
       .from('jobs')
       .select('*, companies(*)')
@@ -257,10 +317,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   const companyMatchResult = await matchingCompanyIds(filters.query)
   const usesDerivedDatabaseFields =
-    filters.arrangement !== 'all' ||
-    filters.sort === 'company' ||
-    filters.sort === 'newest' ||
-    filters.sort === 'oldest'
+    filters.arrangement !== 'all' || filters.sort === 'company'
   const jobsResult = usesDerivedDatabaseFields
     ? await loadDerivedPage(filters, requestedPage, pageSize, companyMatchResult.ids)
     : await loadDatabasePage(filters, requestedPage, pageSize, companyMatchResult.ids)
