@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { requireOperatorAccess } from '@/lib/operator-auth'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server'
 import { scoreJobAgainstProfile } from '@/lib/scoring'
 import { getProfile } from '@/lib/profile'
 import type { ApplicationStatus, JobStatus } from '@/types/database'
@@ -11,7 +11,7 @@ const progressedApplicationStatuses: ApplicationStatus[] = ['applied', 'intervie
 
 export async function updateJobStatus(jobId: string, status: JobStatus) {
   await requireOperatorAccess()
-  const supabase = await createClient()
+  const supabase = createServiceClient()
 
   const [{ data: currentJob, error: jobReadError }, { data: application, error: applicationReadError }] =
     await Promise.all([
@@ -93,7 +93,7 @@ export async function updateJobStatus(jobId: string, status: JobStatus) {
 
 export async function addManualJob(formData: FormData) {
   await requireOperatorAccess()
-  const supabase = await createClient()
+  const supabase = createServiceClient()
 
   const title = String(formData.get('title') || '').trim()
   const companyName = String(formData.get('company') || '').trim()
@@ -149,7 +149,7 @@ export async function addManualJob(formData: FormData) {
 
 export async function rescoreAllJobs() {
   await requireOperatorAccess()
-  const supabase = await createClient()
+  const supabase = createServiceClient()
   const profile = await getProfile(supabase)
 
   const { data: jobs } = await supabase
