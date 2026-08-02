@@ -1,7 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { requireOperatorAccess } from '@/lib/operator-auth'
+import { createServiceClient } from '@/lib/supabase/server'
 import type { Json } from '@/types/database'
 
 function parsePositiveInt(value: FormDataEntryValue | null, fallback: number): number {
@@ -10,7 +11,8 @@ function parsePositiveInt(value: FormDataEntryValue | null, fallback: number): n
 }
 
 export async function saveSettings(formData: FormData) {
-  const supabase = await createClient()
+  await requireOperatorAccess()
+  const supabase = createServiceClient()
 
   const termsRaw = String(formData.get('terms') || '')
   const locationsRaw = String(formData.get('locations') || '')
