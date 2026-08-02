@@ -48,9 +48,9 @@ npm install
 ### 2. Supabase project
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. Apply `supabase/migrations/001_initial_schema.sql`, `002_opportunity_centre.sql`, and `003_operator_boundary_rls.sql` in order.
+2. Apply all SQL files in `supabase/migrations` in numeric order: `001_initial_schema.sql`, `002_opportunity_centre.sql`, `003_operator_boundary_rls.sql`, and `004_jobs_effective_timestamp.sql`.
 3. Copy the **Project URL**, **anon key**, and **service_role key** from Supabase project settings.
-4. Keep the service-role key server-only. Migration 003 makes browser database roles read-only and requires authorized server mutations to use the service role.
+4. Keep the service-role key server-only. Migration 003 makes browser database roles read-only and requires authorized server mutations to use the service role. Migration 004 adds the indexed effective timestamp used for database-side newest and oldest pagination.
 
 ### 3. Environment
 
@@ -111,7 +111,7 @@ Vercel auto-deploys on every push to `main`.
 
 ## Data model (summary)
 
-See `supabase/migrations/001_initial_schema.sql` for the base DDL and `003_operator_boundary_rls.sql` for database authorization. High-level:
+See `supabase/migrations/001_initial_schema.sql` for the base DDL, `003_operator_boundary_rls.sql` for database authorization, and `004_jobs_effective_timestamp.sql` for database-side date ordering. High-level:
 
 - **companies** — name, domain, notes  
 - **jobs** — source, title, description, url, status (`found` / `interested` / `dismissed`)  
