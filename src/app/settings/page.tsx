@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { SettingsForm } from '@/components/SettingsForm'
 
@@ -31,10 +32,20 @@ export default async function SettingsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Saved search terms, follow-up cadence, and base resume. Used by daily
-          ingestion (Phase 4) and AI tailoring (Phase 2).
+          Base resume, follow-up cadence, and compatibility search settings.
         </p>
       </div>
+
+      <Link
+        href="/settings/discovery"
+        className="card block p-5 transition hover:border-slate-300 hover:shadow-sm"
+      >
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Job Discovery V2</p>
+        <h2 className="mt-2 text-lg font-semibold text-slate-950">Open discovery control center</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-600">
+          Manage multi-lane searches, direct employer ATS feeds, provider health, rate budgets, lifecycle verification, and run history.
+        </p>
+      </Link>
 
       <SettingsForm
         initialTerms={(searchTerms.terms ?? []).join(', ')}
