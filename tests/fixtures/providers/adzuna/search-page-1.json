@@ -1,0 +1,19 @@
+{
+  "count": 1,
+  "mean": 115000,
+  "results": [
+    {
+      "id": "adzuna-501",
+      "title": "Strategic Partnerships Manager",
+      "description": "Own strategic alliances, channel partnerships, and enterprise revenue growth.",
+      "redirect_url": "https://www.adzuna.ca/details/adzuna-501?utm_source=test",
+      "created": "2026-08-01T13:00:00Z",
+      "contract_time": "full_time",
+      "salary_min": 110000,
+      "salary_max": 135000,
+      "company": { "display_name": "Acme Markets" },
+      "location": { "display_name": "Remote, Canada", "area": ["Canada"] },
+      "category": { "label": "Sales Jobs", "tag": "sales-jobs" }
+    }
+  ]
+}
