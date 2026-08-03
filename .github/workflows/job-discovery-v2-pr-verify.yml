@@ -1,0 +1,143 @@
+name: Job Discovery V2 PR Verify
+
+on:
+  pull_request:
+    branches:
+      - verification/job-discovery-v2-base
+
+permissions:
+  contents: read
+
+concurrency:
+  group: job-discovery-v2-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Static, database, provider, and visual verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CI: true
+      NEXT_TELEMETRY_DISABLED: 1
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: discovery-verification-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: discovery-verification-placeholder
+      JOB_PULL_API_KEY: discovery-verification-placeholder
+      PGPASSWORD: postgres
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: discovery_verify
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d discovery_verify"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout proposed merge
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install committed dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit and provider fixture tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      - name: Apply production-shaped discovery migration chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa/job-discovery-v2
+          psql -h 127.0.0.1 -U postgres -d discovery_verify \
+            -v ON_ERROR_STOP=1 \
+            -f tests/fixtures/discovery/baseline.sql \
+            2>&1 | tee qa/job-discovery-v2/postgres-baseline.log
+
+          for version in 010 011 012 013 014 015 016 017; do
+            migration=$(find supabase/migrations -maxdepth 1 -type f -name "${version}_*.sql" -print)
+            count=$(printf '%s\n' "$migration" | sed '/^$/d' | wc -l)
+            if [ "$count" -ne 1 ]; then
+              echo "Expected exactly one migration for ${version}; found ${count}" >&2
+              exit 1
+            fi
+            echo "Applying ${migration}" | tee -a qa/job-discovery-v2/postgres-migrations.log
+            psql -h 127.0.0.1 -U postgres -d discovery_verify \
+              -v ON_ERROR_STOP=1 \
+              -f "$migration" \
+              2>&1 | tee -a qa/job-discovery-v2/postgres-migrations.log
+          done
+
+          psql -h 127.0.0.1 -U postgres -d discovery_verify \
+            -v ON_ERROR_STOP=1 \
+            -f tests/fixtures/discovery/assertions.sql \
+            2>&1 | tee qa/job-discovery-v2/postgres-assertions.log
+
+      - name: Install Chromium
+        run: npx --yes playwright@1.55.0 install --with-deps chromium
+
+      - name: Capture desktop and mobile control-center evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa/job-discovery-v2/screenshots
+          npx --yes playwright@1.55.0 screenshot \
+            --browser=chromium \
+            --viewport-size="1440,1000" \
+            --full-page \
+            "file://${GITHUB_WORKSPACE}/tests/fixtures/discovery/control-center.html" \
+            qa/job-discovery-v2/screenshots/discovery-control-center-desktop-1440.png
+          npx --yes playwright@1.55.0 screenshot \
+            --browser=chromium \
+            --device="iPhone 13" \
+            --full-page \
+            "file://${GITHUB_WORKSPACE}/tests/fixtures/discovery/control-center.html" \
+            qa/job-discovery-v2/screenshots/discovery-control-center-mobile-390.png
+
+      - name: Write evidence manifest
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p qa/job-discovery-v2
+          cat > qa/job-discovery-v2/VERIFICATION.md <<EOF
+          # Job Discovery V2 Verification
+
+          - Source commit: \`${{ github.event.pull_request.head.sha }}\`
+          - Merge commit: \`${GITHUB_SHA}\`
+          - Workflow run: \`${GITHUB_RUN_ID}\`
+          - Generated: \`$(date -u +'%Y-%m-%dT%H:%M:%SZ')\`
+          - Merge performed: **no**
+          - Production deployment performed: **no**
+          EOF
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-discovery-v2-pr-evidence-${{ github.event.pull_request.head.sha }}
+          path: qa/job-discovery-v2
+          if-no-files-found: warn
+          retention-days: 30
