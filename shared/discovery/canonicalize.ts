@@ -6,7 +6,7 @@ export interface CanonicalCandidate {
   normalizedTitle: string
   normalizedCompany: string
   normalizedLocation: string
-  method: 'apply_url' | 'company_title_location_week'
+  method: 'company_title_location_week'
 }
 
 function weekBucket(value: string | null): string {
@@ -18,21 +18,15 @@ function weekBucket(value: string | null): string {
   return date.toISOString().slice(0, 10)
 }
 
+/**
+ * Canonical identity deliberately uses employer/title/location/time rather than
+ * source URLs. Aggregators commonly wrap employer apply links in redirect URLs;
+ * URL-first keys would therefore preserve duplicates instead of merging them.
+ */
 export function canonicalizePosting(posting: NormalizedSourcePosting): CanonicalCandidate {
   const normalizedTitle = normalizeText(posting.title)
   const normalizedCompany = normalizeText(posting.companyName)
   const normalizedLocation = normalizeText(posting.location)
-  const normalizedApplyUrl = normalizeUrl(posting.applyUrl)
-
-  if (normalizedApplyUrl) {
-    return {
-      canonicalKey: stableHash(`url|${normalizedApplyUrl}`),
-      normalizedTitle,
-      normalizedCompany,
-      normalizedLocation,
-      method: 'apply_url',
-    }
-  }
 
   return {
     canonicalKey: stableHash(
@@ -53,13 +47,19 @@ export function likelySameJob(
   left: NormalizedSourcePosting,
   right: NormalizedSourcePosting
 ): { match: boolean; confidence: number; reason: string } {
+  const leftApplyUrl = normalizeUrl(left.applyUrl)
+  const rightApplyUrl = normalizeUrl(right.applyUrl)
+  if (leftApplyUrl && rightApplyUrl && leftApplyUrl === rightApplyUrl) {
+    return { match: true, confidence: 1, reason: 'identical normalized apply URL' }
+  }
+
   const a = canonicalizePosting(left)
   const b = canonicalizePosting(right)
   if (a.canonicalKey === b.canonicalKey) {
     return {
       match: true,
-      confidence: a.method === 'apply_url' && b.method === 'apply_url' ? 1 : 0.9,
-      reason: a.method === 'apply_url' ? 'normalized apply URL' : 'company, title, location, and posting week',
+      confidence: 0.9,
+      reason: 'company, title, location, and posting week',
     }
   }
 
