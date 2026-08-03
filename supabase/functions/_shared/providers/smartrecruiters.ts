@@ -43,10 +43,7 @@ function descriptionFromPosting(posting: SmartPosting): string | null {
   const sections = posting.jobAd?.sections
   if (!sections) return null
   const values = Object.values(sections)
-    .map((section) => {
-      if (typeof section === 'string') return section
-      return section?.text ?? ''
-    })
+    .map((section) => typeof section === 'string' ? section : section?.text ?? '')
     .filter(Boolean)
   return values.length > 0 ? values.join('\n\n') : null
 }
@@ -56,7 +53,8 @@ export const smartRecruitersAdapter: JobProviderAdapter = {
   async *discover(context: ProviderDiscoveryContext): AsyncGenerator<ProviderPage> {
     const source = context.companySource
     if (!source) throw new Error('SmartRecruiters discovery requires a company source.')
-    const pageSize = Math.min(Math.max(context.pageSize ?? 100, 1), 100)
+    // Detail hydration is required for scoreable descriptions, so keep each page bounded.
+    const pageSize = Math.min(Math.max(context.pageSize ?? 25, 1), 25)
     const maxPages = Math.max(context.maxPages ?? 20, 1)
     const base = source.apiBaseUrl?.replace(/\/$/, '') ?? 'https://api.smartrecruiters.com/v1/companies'
 
@@ -71,12 +69,25 @@ export const smartRecruitersAdapter: JobProviderAdapter = {
         signal: context.signal,
       })
       if (!response.data) {
-        throw new Error(`SmartRecruiters request failed: ${response.error ?? response.status}`)
+        throw new Error(`SmartRecruiters list request failed: HTTP ${response.status}: ${response.error ?? 'unknown error'}`)
       }
 
       const content = response.data.content ?? []
-      const postings = content
-        .filter((job) => job.name && (job.uuid || job.id))
+      const detailed = await Promise.all(content.map(async (summary) => {
+        const identity = summary.uuid ?? summary.id
+        if (!identity) return null
+        const detail = await requestJson<SmartPosting>(
+          `${base}/${encodeURIComponent(source.boardKey)}/postings/${encodeURIComponent(identity)}`,
+          { fetchImpl: context.fetchImpl, signal: context.signal }
+        )
+        if (!detail.data) {
+          throw new Error(`SmartRecruiters detail request failed for ${identity}: HTTP ${detail.status}: ${detail.error ?? 'unknown error'}`)
+        }
+        return { ...summary, ...detail.data, jobAd: detail.data.jobAd ?? summary.jobAd }
+      }))
+
+      const postings = detailed
+        .filter((job): job is SmartPosting => Boolean(job?.name && (job.uuid || job.id)))
         .map((job) => {
           const location = joinLocation([
             job.location?.city,
@@ -84,6 +95,7 @@ export const smartRecruitersAdapter: JobProviderAdapter = {
             job.location?.country,
           ])
           const description = descriptionFromPosting(job)
+          if (!description) throw new Error(`SmartRecruiters detail ${job.uuid ?? job.id} contained no job description.`)
           const remoteType = classifyRemoteType({
             title: job.name,
             location,
@@ -115,8 +127,9 @@ export const smartRecruitersAdapter: JobProviderAdapter = {
         postings,
         nextCursor: complete ? null : String(offset + pageSize),
         completeSnapshot: complete,
-        requestsUsed: 1,
+        requestsUsed: 1 + content.length,
         httpStatus: response.status,
+        retryAfterSeconds: response.retryAfterSeconds,
       }
       if (complete) return
     }
