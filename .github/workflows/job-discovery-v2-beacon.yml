@@ -1,0 +1,86 @@
+name: Job Discovery V2 Run Beacon
+
+on:
+  push:
+    branches:
+      - feat/job-discovery-v2
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: job-discovery-v2-beacon-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Locate and report exact-head verification run
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const marker = '<!-- job-discovery-v2-run-beacon -->'
+            const head = `${owner}:feat/job-discovery-v2`
+            const pulls = await github.rest.pulls.list({ owner, repo, state: 'open', head })
+            if (!pulls.data.length) return
+            const issue_number = pulls.data[0].number
+
+            let verification = null
+            for (let attempt = 0; attempt < 60; attempt += 1) {
+              const runs = await github.rest.actions.listWorkflowRunsForRepo({
+                owner,
+                repo,
+                branch: 'feat/job-discovery-v2',
+                event: 'push',
+                per_page: 50,
+              })
+              verification = runs.data.workflow_runs.find(run =>
+                run.name === 'Job Discovery V2 Verify' &&
+                run.head_sha === context.sha
+              )
+              if (verification) break
+              await new Promise(resolve => setTimeout(resolve, 5000))
+            }
+            if (!verification) {
+              throw new Error(`No Job Discovery V2 Verify run was found for ${context.sha}`)
+            }
+
+            async function upsert(body) {
+              const comments = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 })
+              const existing = comments.data.find(comment => comment.body?.includes(marker))
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
+              } else {
+                await github.rest.issues.createComment({ owner, repo, issue_number, body })
+              }
+            }
+
+            await upsert(`${marker}\n## Job Discovery V2 verification run\n\n` +
+              `- Commit: \`${context.sha}\`\n` +
+              `- Run ID: \`${verification.id}\`\n` +
+              `- Run: ${verification.html_url}\n` +
+              `- Status: \`${verification.status}\`\n` +
+              `- Conclusion: \`${verification.conclusion ?? 'pending'}\`\n` +
+              `- Merge performed: **no**\n- Deployment performed: **no**`)
+
+            for (let attempt = 0; attempt < 180; attempt += 1) {
+              const current = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: verification.id })
+              verification = current.data
+              if (verification.status === 'completed') break
+              await new Promise(resolve => setTimeout(resolve, 10000))
+            }
+
+            await upsert(`${marker}\n## Job Discovery V2 verification run\n\n` +
+              `- Commit: \`${context.sha}\`\n` +
+              `- Run ID: \`${verification.id}\`\n` +
+              `- Run: ${verification.html_url}\n` +
+              `- Status: \`${verification.status}\`\n` +
+              `- Conclusion: \`${verification.conclusion ?? 'pending'}\`\n` +
+              `- Merge performed: **no**\n- Deployment performed: **no**`)
