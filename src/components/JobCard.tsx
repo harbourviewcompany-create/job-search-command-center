@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { updateJobStatus } from '@/app/jobs/actions'
+import { JobDiscoveryEvidence } from '@/components/discovery/JobDiscoveryEvidence'
 import { formatSource, getWorkArrangementLabel } from '@/lib/jobs'
 import { normalizeDisplayText } from '@/lib/text.mjs'
 import { cn, formatDate } from '@/lib/utils'
@@ -164,6 +165,8 @@ export function JobCard({ job, onStatusChange }: Props) {
             ))}
           </div>
         )}
+
+        <JobDiscoveryEvidence jobId={job.id} />
 
         {description && (
           <p className="mt-4 line-clamp-3 break-words text-sm leading-6 text-slate-600 [overflow-wrap:anywhere]">
