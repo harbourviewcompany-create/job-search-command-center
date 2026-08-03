@@ -55,6 +55,7 @@ export async function ingestPosting(
     : profileRows
   let bestScore: number | null = null
   let bestReasons: string[] = []
+  const disqualifiedReasons: string[] = []
 
   for (const profileRow of eligibleProfiles) {
     const profile: SearchProfile = toSearchProfile(profileRow)
@@ -105,20 +106,23 @@ export async function ingestPosting(
     }, { onConflict: 'job_id,search_profile_id,scoring_version' })
     if (scoreError) throw new Error(`Score persistence failed: ${scoreError.message}`)
 
-    if (!scored.hardDisqualified && (bestScore == null || scored.overallScore > bestScore)) {
+    if (scored.hardDisqualified) {
+      disqualifiedReasons.push(...scored.disqualifiers.map((reason) => `${profile.name}: ${reason}`))
+    } else if (bestScore == null || scored.overallScore > bestScore) {
       bestScore = scored.overallScore
       bestReasons = scored.reasons
     }
   }
 
-  if (bestScore != null) {
-    const { error: compatibilityError } = await supabase
-      .from('jobs')
-      .update({ fit_score: Math.round(bestScore), fit_reasons: bestReasons })
-      .eq('id', result.job_id)
-    if (compatibilityError) {
-      throw new Error(`Compatibility score update failed: ${compatibilityError.message}`)
-    }
+  const compatibility = bestScore == null
+    ? { fit_score: null, fit_reasons: [...new Set(disqualifiedReasons)].slice(0, 12) }
+    : { fit_score: Math.round(bestScore), fit_reasons: bestReasons }
+  const { error: compatibilityError } = await supabase
+    .from('jobs')
+    .update(compatibility)
+    .eq('id', result.job_id)
+  if (compatibilityError) {
+    throw new Error(`Compatibility score update failed: ${compatibilityError.message}`)
   }
 
   return {
