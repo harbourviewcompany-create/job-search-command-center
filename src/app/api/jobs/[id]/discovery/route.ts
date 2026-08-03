@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { requireOperatorAccess } from '@/lib/operator-auth'
+import { createServiceClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,14 +9,20 @@ interface RouteContext {
 }
 
 export async function GET(_request: NextRequest, context: RouteContext) {
+  try {
+    await requireOperatorAccess()
+  } catch {
+    return NextResponse.json({ error: 'Operator access is required.' }, { status: 401 })
+  }
+
   const { id } = await context.params
-  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
     return NextResponse.json({ error: 'Invalid job identity.' }, { status: 400 })
   }
 
-  // Removed once src/types/database.ts is regenerated for migrations 010–017.
+  // Removed once src/types/database.ts is regenerated for migrations 010–018.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const supabase = (await createClient()) as any
+  const supabase = createServiceClient() as any
   const [jobResult, sourceResult, scoreResult] = await Promise.all([
     supabase
       .from('jobs')
