@@ -1,6 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any -- temporary until database types are regenerated from migrations 010–017 */
+/* eslint-disable @typescript-eslint/no-explicit-any -- removed after final schema type generation */
 
-import { createClient } from '@/lib/supabase/server'
+import { requireOperatorAccess } from '@/lib/operator-auth'
+import { createServiceClient } from '@/lib/supabase/server'
 
 export interface DiscoveryProfileRow {
   id: string
@@ -95,7 +96,8 @@ export interface DiscoverySettingsData {
 }
 
 export async function loadDiscoverySettings(): Promise<DiscoverySettingsData> {
-  const supabase = (await createClient()) as any
+  await requireOperatorAccess()
+  const supabase = createServiceClient() as any
   const [profilesResult, companiesResult, sourcesResult, healthResult, runsResult] = await Promise.all([
     supabase.from('search_profiles').select('*').order('priority').order('name'),
     supabase.from('companies').select('id,name').order('name').limit(1000),
