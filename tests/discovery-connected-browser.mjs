@@ -37,10 +37,10 @@ try {
     })
 
     await page.goto(`${baseUrl}/settings/discovery`, { waitUntil: 'networkidle' })
-    await page.getByRole('heading', { name: 'Discovery control center' }).waitFor()
-    await page.getByText('Strategic Business Development', { exact: true }).waitFor()
-    await page.getByText('Acme Markets', { exact: true }).first().waitFor()
-    await page.getByText('Discovery run history', { exact: true }).waitFor()
+    await page.getByRole('heading', { name: 'Discovery control center', exact: true }).waitFor()
+    await page.getByRole('heading', { name: 'Strategic Business Development', exact: true }).waitFor()
+    await page.getByRole('heading', { name: 'Acme Markets', exact: true }).first().waitFor()
+    await page.getByRole('heading', { name: 'Discovery run history', exact: true }).waitFor()
 
     const settingsError = await page.getByRole('alert').allTextContents()
     assert(
@@ -57,13 +57,14 @@ try {
     await page.screenshot({ path: settingsScreenshot, fullPage: true })
 
     await page.goto(`${baseUrl}/jobs`, { waitUntil: 'networkidle' })
-    await page.getByText('Strategic Partnerships Manager', { exact: true }).first().waitFor()
+    await page.getByRole('heading', { name: 'Strategic Partnerships Manager', exact: true }).first().waitFor()
+    const sourceSelect = page.getByLabel('Source', { exact: true })
+    await sourceSelect.locator('option[value="smartrecruiters"]').waitFor({ state: 'attached' })
     const evidenceButton = page.getByRole('button', { name: 'Discovery evidence' }).first()
     await evidenceButton.click()
     await page.getByText('Search-lane scores', { exact: true }).waitFor()
     await page.getByText('Source observations', { exact: true }).waitFor()
     await page.getByText('Partnerships and Alliances', { exact: true }).waitFor()
-    await page.getByText('SmartRecruiters', { exact: true }).first().waitFor({ state: 'attached' })
 
     const jobsOverflow = await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth
