@@ -1,5 +1,7 @@
 'use server'
 
+/* eslint-disable @typescript-eslint/no-explicit-any -- temporary until database types are regenerated from migrations 010–017 */
+
 import { revalidatePath } from 'next/cache'
 import { requireOperatorAccess } from '@/lib/operator-auth'
 import { createServiceClient } from '@/lib/supabase/server'
