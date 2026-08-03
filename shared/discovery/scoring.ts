@@ -38,12 +38,11 @@ function round(value: number): number {
   return Math.round(value * 100) / 100
 }
 
+/** Matches a normalized phrase as one contiguous token sequence. */
 function phraseMatches(blob: string, phrase: string): boolean {
-  const normalized = normalizeText(phrase)
-  if (!normalized) return false
-  if (blob.includes(normalized)) return true
-  const words = normalized.split(' ').filter((word) => word.length > 2)
-  return words.length > 0 && words.every((word) => blob.includes(word))
+  const normalizedBlob = ` ${normalizeText(blob)} `
+  const normalizedPhrase = normalizeText(phrase)
+  return Boolean(normalizedPhrase && normalizedBlob.includes(` ${normalizedPhrase} `))
 }
 
 function matchingPhrases(blob: string, phrases: string[]): string[] {
@@ -79,22 +78,27 @@ function locationDimension(job: ScoringJob, profile: SearchProfile): { score: nu
   const remoteType = job.remoteType ?? (job.remote ? 'remote' : 'unknown')
   const isRemote = remoteType === 'remote'
   const isHybrid = remoteType === 'hybrid'
+  const isOnsite = remoteType === 'onsite'
   const localMatch = profile.locations.some((candidate) => phraseMatches(location, candidate))
 
-  if (profile.remotePolicy === 'remote_only' && !isRemote) {
-    return { score: 0, disqualifier: 'Role is not fully remote.' }
+  if (profile.remotePolicy === 'remote_only' && (isHybrid || isOnsite)) {
+    return { score: 0, disqualifier: 'Role is explicitly not fully remote.' }
   }
-  if (profile.remotePolicy === 'local_only' && (isRemote || (!localMatch && !isHybrid))) {
+  if (profile.remotePolicy === 'local_only' && isRemote) {
+    return { score: 0, disqualifier: 'Role is remote but this lane requires a local role.' }
+  }
+  if (profile.remotePolicy === 'local_only' && isOnsite && !localMatch) {
     return { score: 0, disqualifier: 'Role is outside the accepted local geography.' }
   }
-  if (profile.remotePolicy === 'remote_or_local' && !isRemote && !isHybrid && !localMatch) {
-    return { score: 0, disqualifier: 'Role is neither remote nor in an accepted location.' }
+  if (profile.remotePolicy === 'remote_or_local' && isOnsite && !localMatch) {
+    return { score: 0, disqualifier: 'Role is explicitly onsite outside the accepted geography.' }
   }
 
   if (isRemote && localMatch) return { score: 100 }
   if (isRemote) return { score: 95 }
   if (localMatch) return { score: 90 }
   if (isHybrid) return { score: 75 }
+  if (remoteType === 'unknown') return { score: 50 }
   return { score: profile.remotePolicy === 'any' ? 60 : 25 }
 }
 
@@ -158,6 +162,11 @@ function employmentDisqualifier(job: ScoringJob, profile: SearchProfile): string
     : 'Employment type is outside this search lane.'
 }
 
+function evidenceScore(matches: string[], terms: string[], baseline = 50): number {
+  if (terms.length === 0) return baseline
+  return clamp(35 + (matches.length / terms.length) * 65)
+}
+
 function tierFor(score: number, thresholds: ScoreThresholds): ScoreResult['tier'] {
   if (score >= thresholds.strong) return 'strong'
   if (score >= thresholds.good) return 'good'
@@ -190,8 +199,8 @@ export function scoreJob(
   const title = titleDimension(job.title, profile)
   const requiredMatches = matchingPhrases(blob, profile.requiredTerms)
   const preferredMatches = matchingPhrases(blob, profile.preferredTerms)
-  const experienceTerms = options.experienceTerms ?? profile.preferredTerms
-  const industryTerms = options.industryTerms ?? profile.preferredTerms
+  const experienceTerms = options.experienceTerms ?? []
+  const industryTerms = options.industryTerms ?? []
   const experienceMatches = matchingPhrases(blob, experienceTerms)
   const industryMatches = matchingPhrases(blob, industryTerms)
   const location = locationDimension(job, profile)
@@ -205,8 +214,8 @@ export function scoreJob(
         ? 50 + Math.min(50, preferredMatches.length * 12.5)
         : (requiredMatches.length / profile.requiredTerms.length) * 70 + Math.min(30, preferredMatches.length * 10)
     ),
-    experience: clamp(35 + experienceMatches.length * 13),
-    industry: clamp(35 + industryMatches.length * 15),
+    experience: evidenceScore(experienceMatches, experienceTerms),
+    industry: evidenceScore(industryMatches, industryTerms),
     seniority: seniorityDimension(job, profile),
     location: location.score,
     compensation: compensation.score,
@@ -249,6 +258,8 @@ export function scoreJob(
   if (title.matches.length > 0) reasons.push(`Title aligns with ${title.matches[0]}.`)
   if (preferredMatches.length > 0) reasons.push(`Preferred concepts: ${preferredMatches.slice(0, 4).join(', ')}.`)
   if (requiredMatches.length > 0) reasons.push(`Required concepts: ${requiredMatches.slice(0, 4).join(', ')}.`)
+  if (experienceMatches.length > 0) reasons.push(`Experience evidence: ${experienceMatches.slice(0, 4).join(', ')}.`)
+  if (industryMatches.length > 0) reasons.push(`Industry evidence: ${industryMatches.slice(0, 4).join(', ')}.`)
   if (dimensions.location >= 90) reasons.push(job.remote ? 'Remote-friendly.' : 'Location aligns with the lane.')
   if (dimensions.freshness >= 80) reasons.push('Recently posted or first observed.')
   if (dimensions.sourceQuality >= 90) reasons.push('Direct employer source.')
@@ -266,8 +277,14 @@ export function scoreJob(
     hardDisqualified,
     disqualifiers,
     reasons,
-    matchedTerms: [...new Set([...title.matches, ...requiredMatches, ...preferredMatches])],
-    scoringVersion: 2,
+    matchedTerms: [...new Set([
+      ...title.matches,
+      ...requiredMatches,
+      ...preferredMatches,
+      ...experienceMatches,
+      ...industryMatches,
+    ])],
+    scoringVersion: 3,
   }
 }
 
