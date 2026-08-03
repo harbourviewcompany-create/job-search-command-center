@@ -43,6 +43,7 @@ export interface CompanySourceRow {
   consecutive_failures: number
   active_job_count: number
   companies: { name: string } | { name: string }[] | null
+  search_profile_company_sources: Array<{ search_profile_id: string }> | null
 }
 
 export interface SourceHealthRow {
@@ -98,7 +99,7 @@ export async function loadDiscoverySettings(): Promise<DiscoverySettingsData> {
     supabase.from('companies').select('id,name').order('name').limit(1000),
     supabase
       .from('company_job_sources')
-      .select('*, companies(name)')
+      .select('*, companies(name), search_profile_company_sources(search_profile_id)')
       .order('priority')
       .order('created_at'),
     supabase.from('source_health').select('*').order('priority').order('company_name'),
