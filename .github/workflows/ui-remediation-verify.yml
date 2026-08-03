@@ -49,6 +49,24 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
+      - name: Record observable run identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "harbourviewcompany-create"
+          git config user.email "231706713+harbourviewcompany-create@users.noreply.github.com"
+          mkdir -p qa/job-discovery-v2-premerge
+          {
+            echo '# Job Discovery V2 Remediation Run'
+            echo
+            echo "- Workflow run: ${GITHUB_RUN_ID}"
+            echo "- Starting head: ${GITHUB_SHA}"
+            echo '- Status: running'
+          } > qa/job-discovery-v2-premerge/RUN.md
+          git add qa/job-discovery-v2-premerge/RUN.md
+          git commit -m "chore: record PR10 remediation run ${GITHUB_RUN_ID}"
+          git push origin HEAD:feat/job-discovery-v2
+
       - name: Restore immutable remediation payload
         shell: bash
         run: |
@@ -59,8 +77,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "harbourviewcompany-create"
-          git config user.email "231706713+harbourviewcompany-create@users.noreply.github.com"
           git fetch origin internal-ui-remediation-20260731
           set +e
           git merge --no-commit --no-ff origin/internal-ui-remediation-20260731
@@ -164,7 +180,6 @@ jobs:
           path.write_text(text)
           PY
           rm -f scripts/.pr10-payload-* scripts/run-pr10-remediation.py scripts/.pr10-trigger
-          mkdir -p qa/job-discovery-v2-premerge
           {
             echo '# Job Discovery V2 Pre-Merge Remediation'
             echo
@@ -175,6 +190,7 @@ jobs:
             echo '- Deployment performed: no'
             echo '- Feature deployment disabled: yes'
           } > qa/job-discovery-v2-premerge/REMEDIATION.md
+          rm -f qa/job-discovery-v2-premerge/FAILURE.md
           git add -A
           git commit -m "fix: close Job Discovery V2 pre-merge blockers"
           git push origin HEAD:feat/job-discovery-v2
@@ -184,24 +200,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          run_id=${GITHUB_RUN_ID}
+          start_sha=${GITHUB_SHA}
           git merge --abort 2>/dev/null || true
           git reset --hard HEAD
           git clean -fd
           git show f3ff18ed7d88b210ad166d363f31e4c446197ccc:.github/workflows/ui-remediation-verify.yml > .github/workflows/ui-remediation-verify.yml
           git show aa24075d1857f2e145c4256b0f1956d6b9c339b7:.github/workflows/job-discovery-v2-verify.yml > .github/workflows/job-discovery-v2-verify.yml
           rm -f scripts/.pr10-payload-* scripts/run-pr10-remediation.py scripts/.pr10-trigger
-          mkdir -p qa/job-discovery-v2-premerge
           {
             echo '# Job Discovery V2 Remediation Failure'
             echo
-            echo "- Workflow run: ${GITHUB_RUN_ID}"
-            echo "- Starting head: ${GITHUB_SHA}"
+            echo "- Workflow run: ${run_id}"
+            echo "- Starting head: ${start_sha}"
             echo '- Result: failed before verified commit'
             echo '- Merge performed: no'
             echo '- Deployment performed: no'
           } > qa/job-discovery-v2-premerge/FAILURE.md
           git add -A
-          git commit -m "chore: record PR10 remediation failure ${GITHUB_RUN_ID}"
+          git commit -m "chore: record PR10 remediation failure ${run_id}"
           git push origin HEAD:feat/job-discovery-v2
 
       - name: Upload remediation evidence
