@@ -1,4 +1,4 @@
-import { classifyRemoteType } from '../../../../shared/discovery/normalize.ts'
+import { classifyRemoteType, normalizeUrl, stableHash } from '../../../../shared/discovery/normalize.ts'
 import type { JobProviderAdapter, ProviderDiscoveryContext, ProviderPage } from '../../../../shared/discovery/types.ts'
 import { joinLocation, makePosting, requestJson } from './common.ts'
 
@@ -34,6 +34,13 @@ interface AshbyResponse {
   jobs?: AshbyJob[]
 }
 
+function stableAshbyIdentity(job: AshbyJob): string {
+  const canonicalUrl = normalizeUrl(job.jobUrl)
+  if (canonicalUrl) return `url:${stableHash(canonicalUrl)}`
+  if (job.id) return `id:${job.id}`
+  throw new Error('Ashby posting has no stable identity.')
+}
+
 export const ashbyAdapter: JobProviderAdapter = {
   provider: 'ashby',
   async *discover(context: ProviderDiscoveryContext): AsyncGenerator<ProviderPage> {
@@ -45,7 +52,7 @@ export const ashbyAdapter: JobProviderAdapter = {
       fetchImpl: context.fetchImpl,
       signal: context.signal,
     })
-    if (!response.data) throw new Error(`Ashby request failed: ${response.error ?? response.status}`)
+    if (!response.data) throw new Error(`Ashby request failed: HTTP ${response.status}: ${response.error ?? 'unknown error'}`)
 
     const postings = (response.data.jobs ?? [])
       .filter((job) => job.isListed !== false && job.title && (job.id || job.jobUrl))
@@ -64,7 +71,7 @@ export const ashbyAdapter: JobProviderAdapter = {
         })
         return makePosting({
           provider: 'ashby',
-          externalId: job.id ?? job.jobUrl,
+          externalId: stableAshbyIdentity(job),
           companyName: source.companyName,
           title: job.title,
           location,
@@ -90,6 +97,7 @@ export const ashbyAdapter: JobProviderAdapter = {
       completeSnapshot: true,
       requestsUsed: 1,
       httpStatus: response.status,
+      retryAfterSeconds: response.retryAfterSeconds,
     }
   },
 }
