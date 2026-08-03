@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: job-discovery-v2-premerge-remediation
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   remediate:
@@ -158,17 +158,43 @@ jobs:
           cat > qa/job-discovery-v2-premerge/REMEDIATION.md <<EOF
           # Job Discovery V2 Pre-Merge Remediation
 
-          - Repaired PR8 base: \`f3ff18ed7d88b210ad166d363f31e4c446197ccc\`
-          - Workflow run: \`${GITHUB_RUN_ID}\`
-          - Migrations verified: \`010–018\`
-          - Merge performed: \`no\`
-          - Deployment performed: \`no\`
-          - Feature deployment disabled: \`yes\`
+          - Repaired PR8 base: `f3ff18ed7d88b210ad166d363f31e4c446197ccc`
+          - Workflow run: `${GITHUB_RUN_ID}`
+          - Migrations verified: `010–018`
+          - Merge performed: `no`
+          - Deployment performed: `no`
+          - Feature deployment disabled: `yes`
           EOF
           git add -A
           git config user.name "harbourviewcompany-create"
           git config user.email "231706713+harbourviewcompany-create@users.noreply.github.com"
           git commit -m "fix: close Job Discovery V2 pre-merge blockers"
+          git push origin HEAD:feat/job-discovery-v2
+
+      - name: Record failed gate without preserving partial changes
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge --abort 2>/dev/null || true
+          git reset --hard HEAD
+          git clean -fd
+          git show aa24075d1857f2e145c4256b0f1956d6b9c339b7:.github/workflows/job-discovery-v2-verify.yml > .github/workflows/job-discovery-v2-verify.yml
+          rm -f scripts/.pr10-payload-* scripts/run-pr10-remediation.py scripts/.pr10-trigger
+          mkdir -p qa/job-discovery-v2-premerge
+          cat > qa/job-discovery-v2-premerge/FAILURE.md <<EOF
+          # Job Discovery V2 Remediation Failure
+
+          - Workflow run: `${GITHUB_RUN_ID}`
+          - Starting head: `${GITHUB_SHA}`
+          - Result: `failed before verified commit`
+          - Merge performed: `no`
+          - Deployment performed: `no`
+          EOF
+          git add -A
+          git config user.name "harbourviewcompany-create"
+          git config user.email "231706713+harbourviewcompany-create@users.noreply.github.com"
+          git commit -m "chore: record PR10 remediation failure ${GITHUB_RUN_ID}"
           git push origin HEAD:feat/job-discovery-v2
 
       - name: Upload remediation evidence
