@@ -1,0 +1,107 @@
+name: Job Discovery V2 Type Sync
+
+on:
+  pull_request:
+    types: [reopened]
+    branches:
+      - verification/job-discovery-v2-base
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  sync:
+    if: github.event.pull_request.head.ref == 'feat/job-discovery-v2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CI: true
+      NEXT_TELEMETRY_DISABLED: 1
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: discovery-verification-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: discovery-verification-placeholder
+      JOB_PULL_API_KEY: discovery-verification-placeholder
+      PGPASSWORD: postgres
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: discovery_verify
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d discovery_verify"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/job-discovery-v2
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install committed dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Recreate migrated Job Discovery schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U postgres -d discovery_verify \
+            -v ON_ERROR_STOP=1 \
+            -f tests/fixtures/discovery/baseline.sql
+          for version in 010 011 012 013 014 015 016 017; do
+            migration=$(find supabase/migrations -maxdepth 1 -type f -name "${version}_*.sql" -print)
+            test "$(printf '%s\n' "$migration" | sed '/^$/d' | wc -l)" -eq 1
+            psql -h 127.0.0.1 -U postgres -d discovery_verify \
+              -v ON_ERROR_STOP=1 \
+              -f "$migration"
+          done
+          psql -h 127.0.0.1 -U postgres -d discovery_verify \
+            -v ON_ERROR_STOP=1 \
+            -f tests/fixtures/discovery/assertions.sql
+
+      - name: Generate and synchronize database types
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes supabase@2.110.0 gen types typescript \
+            --db-url 'postgresql://postgres:postgres@127.0.0.1:5432/discovery_verify' \
+            --schema job_search \
+            > /tmp/database.generated.ts
+          node scripts/sync-job-discovery-database-types.mjs \
+            /tmp/database.generated.ts \
+            src/types/database.ts
+
+      - name: Verify synchronized source tree
+        run: |
+          npm run typecheck
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Commit synchronized types and source filters
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/types/database.ts src/app/jobs/page.tsx src/lib/jobs.ts; then
+            echo 'Generated database types and source filters are already synchronized.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/types/database.ts src/app/jobs/page.tsx src/lib/jobs.ts
+          git commit -m 'chore: regenerate Job Discovery V2 database types'
+          git push origin HEAD:feat/job-discovery-v2
