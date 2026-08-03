@@ -33,7 +33,11 @@ try {
       if (message.type() === 'error') consoleErrors.push(message.text())
     })
     page.on('requestfailed', (request) => {
-      requestFailures.push(`${request.method()} ${request.url()} — ${request.failure()?.errorText ?? 'failed'}`)
+      const errorText = request.failure()?.errorText ?? 'failed'
+      // Next.js aborts speculative RSC prefetches when navigation makes them
+      // unnecessary. Those cancelled requests are expected browser behavior.
+      if (errorText === 'net::ERR_ABORTED') return
+      requestFailures.push(`${request.method()} ${request.url()} — ${errorText}`)
     })
 
     await page.goto(`${baseUrl}/settings/discovery`, { waitUntil: 'networkidle' })
