@@ -1,0 +1,16 @@
+{
+  "jobs": [
+    {
+      "id": 101,
+      "internal_job_id": 501,
+      "title": "Strategic Partnerships Manager",
+      "updated_at": "2026-08-01T14:00:00Z",
+      "location": { "name": "Remote, Canada" },
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/101",
+      "content": "<p>Own strategic alliances, channel partnerships, and enterprise revenue growth.</p>",
+      "departments": [{ "name": "Commercial" }],
+      "offices": [{ "name": "Canada", "location": "Remote" }]
+    }
+  ],
+  "meta": { "total": 1 }
+}
