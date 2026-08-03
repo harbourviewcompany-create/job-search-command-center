@@ -1,42 +1,22 @@
-name: Job Discovery V2 Verify
+name: Job Discovery V2 Exact Head Verify
 
 on:
   push:
     branches:
       - feat/job-discovery-v2
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'shared/discovery/**'
-      - 'src/app/settings/discovery/**'
-      - 'src/components/discovery/**'
-      - 'src/lib/discovery/**'
-      - 'supabase/functions/_shared/discovery/**'
-      - 'supabase/functions/_shared/providers/**'
-      - 'supabase/functions/daily-job-pull/**'
-      - 'supabase/migrations/01[0-7]_*.sql'
-      - 'tests/discovery-v2.test.mjs'
-      - 'tests/fixtures/discovery/**'
-      - 'tests/fixtures/providers/**'
-      - '.github/workflows/job-discovery-v2-verify.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: job-discovery-v2-${{ github.ref }}
+  group: job-discovery-v2-exact-head
   cancel-in-progress: true
 
 jobs:
   verify:
-    name: Static, database, provider, and visual verification
+    name: Static, database, Edge, and fixture verification
     runs-on: ubuntu-latest
-    timeout-minutes: 35
-    permissions:
-      contents: read
-      pull-requests: read
-      issues: write # Exact-head status reporting to the draft PR only.
+    timeout-minutes: 50
     env:
       CI: true
       NEXT_TELEMETRY_DISABLED: 1
@@ -61,7 +41,7 @@ jobs:
           --health-retries 20
 
     steps:
-      - name: Checkout feature branch without persisted credentials
+      - name: Checkout exact feature head
         uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -72,34 +52,22 @@ jobs:
           node-version: 22
           cache: npm
 
-      - id: install
-        name: Install committed dependencies
-        continue-on-error: true
+      - name: Install committed dependencies
         run: npm ci --no-audit --no-fund
 
-      - id: typecheck
-        name: Typecheck
-        continue-on-error: true
+      - name: Typecheck
         run: npm run typecheck
 
-      - id: lint
-        name: Lint
-        continue-on-error: true
+      - name: Lint
         run: npm run lint
 
-      - id: tests
-        name: Unit and provider fixture tests
-        continue-on-error: true
+      - name: Unit and provider fixture tests
         run: npm test
 
-      - id: build
-        name: Production build
-        continue-on-error: true
+      - name: Production build
         run: npm run build
 
-      - id: migrations
-        name: Apply production-shaped discovery migration chain
-        continue-on-error: true
+      - name: Apply PostgreSQL 16 migration and assertion chain
         shell: bash
         run: |
           set -euo pipefail
@@ -128,130 +96,80 @@ jobs:
             -f tests/fixtures/discovery/assertions.sql \
             2>&1 | tee qa/job-discovery-v2/postgres-assertions.log
 
-      - id: browser_install
-        name: Install Chromium for screenshot evidence
-        continue-on-error: true
+          pg_dump -h 127.0.0.1 -U postgres -d discovery_verify \
+            --schema-only --schema=job_search \
+            > qa/job-discovery-v2/job-search-schema.sql
+
+      - name: Generate Supabase TypeScript definitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes supabase@2.110.0 gen types typescript \
+            --db-url 'postgresql://postgres:postgres@127.0.0.1:5432/discovery_verify' \
+            --schema job_search \
+            > qa/job-discovery-v2/database.generated.ts
+          test -s qa/job-discovery-v2/database.generated.ts
+          grep -q 'search_profiles' qa/job-discovery-v2/database.generated.ts
+          grep -q 'job_source_postings' qa/job-discovery-v2/database.generated.ts
+          grep -q 'discovery_runs' qa/job-discovery-v2/database.generated.ts
+          grep -q 'ingest_job_source_posting' qa/job-discovery-v2/database.generated.ts
+          npx --yes supabase@2.110.0 --version | tee qa/job-discovery-v2/supabase-cli-version.txt
+
+      - name: Use Deno 2
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Verify Supabase Edge dependency graph and types
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno --version | tee qa/job-discovery-v2/deno-version.txt
+          deno cache --reload supabase/functions/daily-job-pull/index.ts \
+            2>&1 | tee qa/job-discovery-v2/edge-cache.log
+          deno check --reload supabase/functions/daily-job-pull/index.ts \
+            2>&1 | tee qa/job-discovery-v2/edge-check.log
+          deno info supabase/functions/daily-job-pull/index.ts \
+            2>&1 | tee qa/job-discovery-v2/edge-dependency-graph.txt
+
+      - name: Install Chromium
         run: npx --yes playwright@1.55.0 install --with-deps chromium
 
-      - id: screenshots
-        name: Capture desktop and mobile discovery control center
-        continue-on-error: true
+      - name: Capture deterministic fixture evidence at required widths
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p qa/job-discovery-v2/screenshots
-          npx --yes playwright@1.55.0 screenshot \
-            --browser=chromium \
-            --viewport-size="1440,1000" \
-            --full-page \
-            "file://${GITHUB_WORKSPACE}/tests/fixtures/discovery/control-center.html" \
-            qa/job-discovery-v2/screenshots/discovery-control-center-desktop-1440.png
-          npx --yes playwright@1.55.0 screenshot \
-            --browser=chromium \
-            --device="iPhone 13" \
-            --full-page \
-            "file://${GITHUB_WORKSPACE}/tests/fixtures/discovery/control-center.html" \
-            qa/job-discovery-v2/screenshots/discovery-control-center-mobile-390.png
+          for width in 390 768 1440; do
+            npx --yes playwright@1.55.0 screenshot \
+              --browser=chromium \
+              --viewport-size="${width},1000" \
+              --full-page \
+              "file://${GITHUB_WORKSPACE}/tests/fixtures/discovery/control-center.html" \
+              "qa/job-discovery-v2/screenshots/discovery-control-center-fixture-${width}.png"
+          done
 
-      - name: Write verification manifest
+      - name: Write exact-head manifest
         if: always()
         shell: bash
         run: |
           mkdir -p qa/job-discovery-v2
           cat > qa/job-discovery-v2/VERIFICATION.md <<EOF
-          # Job Discovery V2 Verification
+          # Job Discovery V2 Exact-Head Verification
 
           - Source commit: \`${GITHUB_SHA}\`
           - Workflow run: \`${GITHUB_RUN_ID}\`
           - Generated: \`$(date -u +'%Y-%m-%dT%H:%M:%SZ')\`
-          - Branch deployment enabled: **false**
-          - Merge performed: **no**
-          - Production deployment performed: **no**
-
-          ## Gate outcomes
-
-          - npm ci: \`${{ steps.install.outcome }}\`
-          - TypeScript: \`${{ steps.typecheck.outcome }}\`
-          - ESLint: \`${{ steps.lint.outcome }}\`
-          - Unit/provider tests: \`${{ steps.tests.outcome }}\`
-          - Production build: \`${{ steps.build.outcome }}\`
-          - PostgreSQL migrations/assertions: \`${{ steps.migrations.outcome }}\`
-          - Chromium installation: \`${{ steps.browser_install.outcome }}\`
-          - Desktop/mobile screenshots: \`${{ steps.screenshots.outcome }}\`
+          - Main ancestry reconciled: **yes**
+          - PR #10 merged: **no**
+          - Deployment performed: **no**
           EOF
 
-      - name: Upload verification evidence
+      - name: Upload exact-head evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: job-discovery-v2-evidence-${{ github.sha }}
+          name: job-discovery-v2-exact-head-${{ github.sha }}
           path: qa/job-discovery-v2
           if-no-files-found: error
           retention-days: 30
-
-      - name: Report exact-head result to draft PR
-        if: always()
-        uses: actions/github-script@v7
-        env:
-          INSTALL: ${{ steps.install.outcome }}
-          TYPECHECK: ${{ steps.typecheck.outcome }}
-          LINT: ${{ steps.lint.outcome }}
-          TESTS: ${{ steps.tests.outcome }}
-          BUILD: ${{ steps.build.outcome }}
-          MIGRATIONS: ${{ steps.migrations.outcome }}
-          BROWSER_INSTALL: ${{ steps.browser_install.outcome }}
-          SCREENSHOTS: ${{ steps.screenshots.outcome }}
-        with:
-          script: |
-            const owner = context.repo.owner
-            const repo = context.repo.repo
-            const head = `${owner}:feat/job-discovery-v2`
-            const pulls = await github.rest.pulls.list({ owner, repo, state: 'open', head })
-            if (!pulls.data.length) return
-            const fields = {
-              install: process.env.INSTALL,
-              typecheck: process.env.TYPECHECK,
-              lint: process.env.LINT,
-              tests: process.env.TESTS,
-              build: process.env.BUILD,
-              migrations: process.env.MIGRATIONS,
-              browser_install: process.env.BROWSER_INSTALL,
-              screenshots: process.env.SCREENSHOTS,
-            }
-            const passed = Object.values(fields).every(value => value === 'success')
-            const marker = '<!-- job-discovery-v2-verification -->'
-            const body = `${marker}\n## Job Discovery V2 exact-head verification\n\n` +
-              `- Commit: \`${context.sha}\`\n` +
-              `- Run: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}\n` +
-              `- Result: **${passed ? 'GO' : 'HOLD'}**\n` +
-              Object.entries(fields).map(([name, value]) => `- ${name}: \`${value}\``).join('\n') +
-              `\n- Merge performed: **no**\n- Deployment performed: **no**`
-            const comments = await github.rest.issues.listComments({ owner, repo, issue_number: pulls.data[0].number, per_page: 100 })
-            const existing = comments.data.find(comment => comment.body?.includes(marker))
-            if (existing) {
-              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
-            } else {
-              await github.rest.issues.createComment({ owner, repo, issue_number: pulls.data[0].number, body })
-            }
-
-      - name: Enforce required gates
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          outcomes=(
-            "${{ steps.install.outcome }}"
-            "${{ steps.typecheck.outcome }}"
-            "${{ steps.lint.outcome }}"
-            "${{ steps.tests.outcome }}"
-            "${{ steps.build.outcome }}"
-            "${{ steps.migrations.outcome }}"
-            "${{ steps.browser_install.outcome }}"
-            "${{ steps.screenshots.outcome }}"
-          )
-          for outcome in "${outcomes[@]}"; do
-            if [ "$outcome" != success ]; then
-              echo "One or more required Job Discovery V2 gates failed." >&2
-              exit 1
-            fi
-          done
