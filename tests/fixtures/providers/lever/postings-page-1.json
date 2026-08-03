@@ -1,0 +1,19 @@
+[
+  {
+    "id": "lever-201",
+    "text": "Enterprise Account Manager",
+    "categories": {
+      "location": "Ottawa, Ontario",
+      "allLocations": ["Ottawa, Ontario"],
+      "commitment": "Full-time",
+      "team": "Revenue",
+      "department": "Commercial"
+    },
+    "descriptionPlain": "Manage strategic enterprise accounts and expand a national portfolio.",
+    "openingPlain": "Build durable executive relationships.",
+    "hostedUrl": "https://jobs.lever.co/acme/lever-201",
+    "applyUrl": "https://jobs.lever.co/acme/lever-201/apply",
+    "workplaceType": "hybrid",
+    "salaryRange": { "currency": "CAD", "interval": "per-year-salary", "min": 105000, "max": 130000 }
+  }
+]
