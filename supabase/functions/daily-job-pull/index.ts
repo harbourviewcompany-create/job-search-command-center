@@ -34,6 +34,8 @@ interface NormalizedJob {
   posted_at: string | null
 }
 
+// --- Fit scoring (mirrors src/lib/scoring.ts; keep in sync) ---
+
 const PROFILE = {
   target_titles: [
     'business development manager',
@@ -157,6 +159,8 @@ function scoreJob(job: {
   return { score, reasons }
 }
 
+// --- Providers ---
+
 async function fetchAdzuna(
   term: string,
   location: string,
@@ -240,6 +244,10 @@ async function fetchIndeed(
   }
 }
 
+/**
+ * RemoteOK free public API — https://remoteok.com/api
+ * No auth. Filter by search terms against title/description/tags.
+ */
 async function fetchRemoteOK(terms: string[]): Promise<NormalizedJob[]> {
   try {
     const res = await fetch('https://remoteok.com/api', {
@@ -268,6 +276,7 @@ async function fetchRemoteOK(terms: string[]): Promise<NormalizedJob[]> {
         : []
       const blob = `${title} ${desc} ${tags.join(' ')}`.toLowerCase()
 
+      // Keep if any search term overlaps, or if BD/sales signal present when terms are set
       const termHit =
         termList.length === 0 ||
         termList.some((t) => {
@@ -300,12 +309,15 @@ async function fetchRemoteOK(terms: string[]): Promise<NormalizedJob[]> {
       })
     }
 
+    // Cap remoteok volume per run
     return normalized.slice(0, 40)
   } catch (e) {
     console.error('RemoteOK fetch failed', e)
     return []
   }
 }
+
+// --- Main ---
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -316,6 +328,7 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const indeedPublisher = Deno.env.get('INDEED_PUBLISHER_ID')
+    // RemoteOK is always on unless explicitly disabled
     const remoteOkEnabled = Deno.env.get('REMOTEOK_ENABLED') !== 'false'
 
     const supabase = createClient(supabaseUrl, serviceKey, {
@@ -323,6 +336,7 @@ Deno.serve(async (req) => {
       auth: { persistSession: false },
     })
 
+    // Adzuna creds: prefer function secrets, fall back to Vault (job_search.get_adzuna_credentials)
     let adzunaAppId = Deno.env.get('ADZUNA_APP_ID')
     let adzunaAppKey = Deno.env.get('ADZUNA_APP_KEY')
     if (!adzunaAppId || !adzunaAppKey) {
