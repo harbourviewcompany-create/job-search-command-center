@@ -1,0 +1,174 @@
+name: Job Discovery V2 Connected Runtime Verify
+
+on:
+  pull_request:
+    branches:
+      - verification/job-discovery-v2-base
+
+permissions:
+  contents: read
+
+concurrency:
+  group: job-discovery-v2-runtime-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  runtime:
+    name: Actual settings and job-card browser verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      CI: true
+      NEXT_TELEMETRY_DISABLED: 1
+      PGPASSWORD: postgres
+      JWT_SECRET: job-discovery-v2-local-runtime-secret-longer-than-thirty-two-characters
+      RUNTIME_BASE_URL: http://127.0.0.1:3000
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: discovery_verify
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d discovery_verify"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout proposed merge
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install committed dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Apply migrated schema and connected browser seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa/job-discovery-v2/actual
+          psql -h 127.0.0.1 -U postgres -d discovery_verify \
+            -v ON_ERROR_STOP=1 \
+            -f tests/fixtures/discovery/baseline.sql \
+            2>&1 | tee qa/job-discovery-v2/actual/postgres-baseline.log
+
+          for version in 010 011 012 013 014 015 016 017; do
+            migration=$(find supabase/migrations -maxdepth 1 -type f -name "${version}_*.sql" -print)
+            test "$(printf '%s\n' "$migration" | sed '/^$/d' | wc -l)" -eq 1
+            psql -h 127.0.0.1 -U postgres -d discovery_verify \
+              -v ON_ERROR_STOP=1 \
+              -f "$migration" \
+              2>&1 | tee -a qa/job-discovery-v2/actual/postgres-migrations.log
+          done
+
+          psql -h 127.0.0.1 -U postgres -d discovery_verify \
+            -v ON_ERROR_STOP=1 \
+            -f tests/fixtures/discovery/assertions.sql \
+            2>&1 | tee qa/job-discovery-v2/actual/postgres-assertions.log
+          psql -h 127.0.0.1 -U postgres -d discovery_verify \
+            -v ON_ERROR_STOP=1 \
+            -f tests/fixtures/discovery/browser-seed.sql \
+            2>&1 | tee qa/job-discovery-v2/actual/browser-seed.log
+
+      - name: Generate local Supabase JWT keys
+        shell: bash
+        run: |
+          node <<'NODE'
+          const crypto = require('node:crypto')
+          const fs = require('node:fs')
+          const secret = process.env.JWT_SECRET
+          const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url')
+          const token = (role) => {
+            const header = encode({ alg: 'HS256', typ: 'JWT' })
+            const payload = encode({ role, iss: 'supabase', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 7200 })
+            const signature = crypto.createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url')
+            return `${header}.${payload}.${signature}`
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV, `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321\n`)
+          fs.appendFileSync(process.env.GITHUB_ENV, `NEXT_PUBLIC_SUPABASE_ANON_KEY=${token('anon')}\n`)
+          fs.appendFileSync(process.env.GITHUB_ENV, `SUPABASE_SERVICE_ROLE_KEY=${token('service_role')}\n`)
+          fs.appendFileSync(process.env.GITHUB_ENV, `JOB_PULL_API_KEY=connected-runtime-job-pull-key\n`)
+          NODE
+
+      - name: Start PostgREST and local Supabase proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name discovery-postgrest --network host \
+            -e PGRST_DB_URI='postgres://postgres:postgres@127.0.0.1:5432/discovery_verify' \
+            -e PGRST_DB_SCHEMAS='job_search' \
+            -e PGRST_DB_ANON_ROLE='anon' \
+            -e PGRST_JWT_SECRET="$JWT_SECRET" \
+            -e PGRST_SERVER_PORT='3001' \
+            postgrest/postgrest:v12.2.8
+
+          node tests/local-supabase-proxy.mjs \
+            > qa/job-discovery-v2/actual/supabase-proxy.log 2>&1 &
+          echo $! > qa/job-discovery-v2/actual/supabase-proxy.pid
+
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:54321/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:54321/health
+          curl -fsS \
+            -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+            -H 'Accept-Profile: job_search' \
+            'http://127.0.0.1:54321/rest/v1/search_profiles?select=id,name&limit=1' \
+            | tee qa/job-discovery-v2/actual/postgrest-readiness.json
+
+      - name: Install Chromium and Playwright runtime
+        shell: bash
+        run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Build and start the actual Next.js application
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build 2>&1 | tee qa/job-discovery-v2/actual/next-build.log
+          npm run start -- --hostname 127.0.0.1 --port 3000 \
+            > qa/job-discovery-v2/actual/next-runtime.log 2>&1 &
+          echo $! > qa/job-discovery-v2/actual/next-runtime.pid
+
+          for attempt in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:3000/settings/discovery >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3000/settings/discovery >/dev/null
+          curl -fsS http://127.0.0.1:3000/jobs >/dev/null
+
+      - name: Capture actual connected screens at 390, 768, and 1440
+        run: node tests/discovery-connected-browser.mjs
+
+      - name: Capture container and runtime diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p qa/job-discovery-v2/actual
+          docker logs discovery-postgrest \
+            > qa/job-discovery-v2/actual/postgrest.log 2>&1 || true
+          docker ps -a \
+            > qa/job-discovery-v2/actual/docker-ps.txt 2>&1 || true
+
+      - name: Upload actual connected-browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-discovery-v2-connected-runtime-${{ github.event.pull_request.head.sha }}
+          path: qa/job-discovery-v2/actual
+          if-no-files-found: error
+          retention-days: 30
