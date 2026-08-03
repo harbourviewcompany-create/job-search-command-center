@@ -1,4 +1,4 @@
-import { contentHash, normalizeEmploymentType, normalizeSeniority, parseDate, stripHtml } from '../../../../shared/discovery/normalize.ts'
+import { contentHash, finiteNumber, normalizeEmploymentType, normalizeSeniority, parseDate, stripHtml } from '../../../../shared/discovery/normalize.ts'
 import type { NormalizedSourcePosting, RemoteType } from '../../../../shared/discovery/types.ts'
 
 export interface JsonResponse<T> {
@@ -11,12 +11,19 @@ export interface JsonResponse<T> {
 
 export async function requestJson<T>(
   url: string,
-  input: RequestInit & { fetchImpl?: typeof fetch } = {}
+  input: RequestInit & { fetchImpl?: typeof fetch; timeoutMs?: number } = {}
 ): Promise<JsonResponse<T>> {
-  const { fetchImpl = fetch, ...init } = input
+  const { fetchImpl = fetch, timeoutMs = 15_000, signal: callerSignal, ...init } = input
+  const controller = new AbortController()
+  const abortFromCaller = () => controller.abort(callerSignal?.reason)
+  if (callerSignal?.aborted) abortFromCaller()
+  callerSignal?.addEventListener('abort', abortFromCaller, { once: true })
+  const timeout = setTimeout(() => controller.abort(new Error(`Provider request timed out after ${timeoutMs}ms.`)), timeoutMs)
+
   try {
     const response = await fetchImpl(url, {
       ...init,
+      signal: controller.signal,
       headers: {
         Accept: 'application/json',
         'User-Agent': 'JobSearchCommandCenter/2.0',
@@ -47,13 +54,19 @@ export async function requestJson<T>(
       error: null,
     }
   } catch (error) {
+    const message = controller.signal.aborted && !callerSignal?.aborted
+      ? `Provider request timed out after ${timeoutMs}ms.`
+      : error instanceof Error ? error.message : String(error)
     return {
       data: null,
       status: 0,
       headers: new Headers(),
       retryAfterSeconds: null,
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
     }
+  } finally {
+    clearTimeout(timeout)
+    callerSignal?.removeEventListener('abort', abortFromCaller)
   }
 }
 
@@ -91,8 +104,6 @@ export function makePosting(input: {
   const applyUrl = input.applyUrl == null ? sourceUrl : String(input.applyUrl)
   const employmentType = normalizeEmploymentType(input.employmentType == null ? null : String(input.employmentType))
   const seniority = normalizeSeniority(input.seniority == null ? title : String(input.seniority))
-  const salaryMin = Number(input.salaryMin)
-  const salaryMax = Number(input.salaryMax)
   const remoteType = input.remoteType ?? (input.remote ? 'remote' : 'unknown')
 
   return {
@@ -109,9 +120,11 @@ export function makePosting(input: {
     postedAt: parseDate(input.postedAt),
     employmentType,
     seniority,
-    salaryMin: Number.isFinite(salaryMin) ? salaryMin : null,
-    salaryMax: Number.isFinite(salaryMax) ? salaryMax : null,
-    salaryCurrency: input.salaryCurrency == null ? null : String(input.salaryCurrency).toUpperCase(),
+    salaryMin: finiteNumber(input.salaryMin),
+    salaryMax: finiteNumber(input.salaryMax),
+    salaryCurrency: input.salaryCurrency == null || input.salaryCurrency === ''
+      ? null
+      : String(input.salaryCurrency).toUpperCase(),
     contentHash: contentHash([title, companyName, location, description, sourceUrl, applyUrl]),
     rawPayload: input.rawPayload,
     companyJobSourceId: input.companyJobSourceId ?? null,
