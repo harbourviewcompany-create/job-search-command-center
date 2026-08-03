@@ -7,10 +7,14 @@ export async function completeCompanySnapshot(
     verifiedAt?: string
   }
 ): Promise<{ closed: number; reopened: number }> {
+  const observedExternalIds = [...new Set(input.observedExternalIds.filter(Boolean))]
+  // Defense in depth: the RPC also suppresses empty complete snapshots. Pass an
+  // incomplete snapshot here so older database revisions cannot mass-close jobs.
+  const lifecycleComplete = input.complete && observedExternalIds.length > 0
   const { data, error } = await supabase.rpc('mark_source_snapshot_complete', {
     p_company_job_source_id: input.companyJobSourceId,
-    p_observed_external_ids: input.observedExternalIds,
-    p_complete: input.complete,
+    p_observed_external_ids: observedExternalIds,
+    p_complete: lifecycleComplete,
     p_verified_at: input.verifiedAt ?? new Date().toISOString(),
   })
   if (error) throw new Error(`Snapshot lifecycle update failed: ${error.message}`)
