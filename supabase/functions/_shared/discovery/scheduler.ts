@@ -33,12 +33,17 @@ export function scheduleCompanySources<T extends CompanyJobSource & {
   lastCheckedAt?: string | null
   pollIntervalMinutes?: number
 }>(sources: T[], now = new Date()): T[] {
-  return [...sources]
-    .filter((source) => sourceIsDue(source, now))
-    .sort((left, right) => {
-      if (left.priority !== right.priority) return left.priority - right.priority
-      const leftTime = left.lastCheckedAt ? new Date(left.lastCheckedAt).getTime() : 0
-      const rightTime = right.lastCheckedAt ? new Date(right.lastCheckedAt).getTime() : 0
-      return leftTime - rightTime
-    })
+  // A source-specific API request filters the registry to one record before
+  // scheduling. Always include that single source so “Poll source” is a real
+  // forced verification even when its normal cadence has not elapsed.
+  const eligible = sources.length === 1
+    ? [...sources]
+    : sources.filter((source) => sourceIsDue(source, now))
+
+  return eligible.sort((left, right) => {
+    if (left.priority !== right.priority) return left.priority - right.priority
+    const leftTime = left.lastCheckedAt ? new Date(left.lastCheckedAt).getTime() : 0
+    const rightTime = right.lastCheckedAt ? new Date(right.lastCheckedAt).getTime() : 0
+    return leftTime - rightTime
+  })
 }
