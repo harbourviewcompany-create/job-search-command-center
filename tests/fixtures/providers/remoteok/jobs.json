@@ -1,0 +1,16 @@
+[
+  { "legal": "RemoteOK API terms fixture" },
+  {
+    "id": "remoteok-601",
+    "position": "Channel Partnerships Manager",
+    "company": "Remote Growth Co",
+    "location": "Remote - Canada",
+    "description": "Develop channel alliances and strategic partner revenue.",
+    "tags": ["sales", "partnerships", "b2b"],
+    "url": "https://remoteok.com/remote-jobs/remoteok-601",
+    "apply_url": "https://remoteok.com/remote-jobs/remoteok-601/apply",
+    "epoch": 1785686400,
+    "salary_min": 100000,
+    "salary_max": 125000
+  }
+]
