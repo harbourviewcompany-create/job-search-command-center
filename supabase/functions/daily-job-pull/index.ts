@@ -1,513 +1,447 @@
 /**
- * Daily job pull — Supabase Edge Function
+ * Job Discovery V2 orchestrator.
  *
- * Sources:
- * 1. Adzuna (primary, official free API) — country `ca` for Canada
- * 2. RemoteOK (free public API, remote roles)
- * 3. Indeed Publisher API (optional legacy) — only if INDEED_PUBLISHER_ID is set
- *
- * Reads search_terms from settings, upserts jobs, scores against profile.
- * Schedule via pg_cron (see migrations/003_schedule_job_pull.sql).
+ * Runs due target-company ATS snapshots and profile-based aggregator queries,
+ * persists every provider observation, canonicalizes duplicates, scores jobs
+ * against configurable search lanes, and records run/source lifecycle evidence.
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.47.10'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.111.0'
+import { shouldContinuePagination } from '../../../shared/discovery/budget.ts'
+import type { DiscoveryQuery, ProviderPage } from '../../../shared/discovery/types.ts'
+import { reserveAdzunaRequest } from '../_shared/discovery/budget.ts'
+import { ingestPosting } from '../_shared/discovery/ingest.ts'
+import { completeCompanySnapshot, expireStaleAggregators } from '../_shared/discovery/lifecycle.ts'
+import {
+  emptyTotals,
+  finishDiscoveryRun,
+  finishRunStep,
+  startDiscoveryRun,
+  startRunStep,
+} from '../_shared/discovery/run-recorder.ts'
+import {
+  type SearchProfileRow,
+  toCompanySource,
+  toDiscoveryQuery,
+  toSearchProfile,
+} from '../_shared/discovery/registry.ts'
+import { scheduleCompanySources, scheduleQueries } from '../_shared/discovery/scheduler.ts'
+import { getProviderAdapter } from '../_shared/providers/index.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Content-Type': 'application/json',
 }
 
-interface SearchTerms {
-  terms: string[]
-  locations: string[]
+interface TriggerBody {
+  source?: 'manual' | 'scheduled' | 'verification'
+  profile_id?: string | null
+  company_source_id?: string | null
+  max_pages?: number
+  force?: boolean
+  triggered_at?: string
 }
 
-interface NormalizedJob {
-  source: 'indeed' | 'adzuna' | 'remoteok'
-  external_id: string
-  title: string
-  company_name: string
-  location: string | null
-  remote: boolean
-  description: string | null
-  url: string | null
-  posted_at: string | null
+interface CompanySourceRow extends Record<string, any> {
+  id: string
+  provider: 'greenhouse' | 'lever' | 'ashby' | 'smartrecruiters'
+  last_checked_at?: string | null
+  poll_interval_minutes?: number
+  consecutive_failures?: number
 }
 
-// --- Fit scoring (mirrors src/lib/scoring.ts; keep in sync) ---
-
-const PROFILE = {
-  target_titles: [
-    'business development manager',
-    'director of business development',
-    'account executive',
-    'strategic account manager',
-    'partnerships manager',
-    'head of sales',
-    'market development manager',
-    'client partnerships manager',
-    'revenue leader',
-    'general manager',
-    'account manager',
-    'sales manager',
-  ],
-  skills: [
-    'business development',
-    'account management',
-    'b2b sales',
-    'client relationship',
-    'international trade',
-    'market expansion',
-    'talent acquisition',
-    'recruiting',
-    'hvac',
-    'insurance',
-    'automotive',
-    'operations management',
-    'team leadership',
-    'revenue growth',
-    'market intelligence',
-    'cross-border',
-    'channel partnerships',
-    'partnerships',
-  ],
-  industries: [
-    'international trade',
-    'marketplace',
-    'hvac',
-    'insurance',
-    'automotive',
-    'recruiting',
-    'staffing',
-    'cannabis',
-    'supply chain',
-  ],
-  locations: ['ottawa', 'ontario', 'canada', 'remote'],
+function json(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: corsHeaders })
 }
 
-function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9+.# ]/g, ' ')
+function runTrigger(body: TriggerBody): 'scheduled' | 'manual' | 'profile' | 'company' | 'verification' {
+  if (body.source === 'verification') return 'verification'
+  if (body.company_source_id) return 'company'
+  if (body.profile_id) return 'profile'
+  if (body.source === 'manual') return 'manual'
+  return 'scheduled'
 }
 
-function scoreJob(job: {
-  title: string
-  description?: string | null
-  location?: string | null
-  remote?: boolean
-}): { score: number; reasons: string[] } {
-  const blob = normalize([job.title, job.description ?? '', job.location ?? ''].join(' '))
-  const reasons: string[] = []
-  let score = 20
-
-  const titleNorm = normalize(job.title)
-  const titleHit = PROFILE.target_titles.find((t) => {
-    const words = t.split(' ').filter((w) => w.length > 3)
-    return titleNorm.includes(t) || (words.length > 0 && words.every((w) => titleNorm.includes(w)))
-  })
-  if (titleHit) {
-    score += 35
-    reasons.push(`Title aligns with ${titleHit}`)
-  }
-
-  const skillHits = PROFILE.skills.filter((s) => blob.includes(s))
-  if (skillHits.length >= 4) {
-    score += 25
-    reasons.push(`Skills: ${skillHits.slice(0, 4).join(', ')}`)
-  } else if (skillHits.length >= 2) {
-    score += 15
-    reasons.push(`Skills: ${skillHits.slice(0, 3).join(', ')}`)
-  } else if (skillHits.length === 1) {
-    score += 8
-    reasons.push(`Skill: ${skillHits[0]}`)
-  }
-
-  const industryHits = PROFILE.industries.filter((i) => blob.includes(i))
-  if (industryHits.length > 0) {
-    score += 12
-    reasons.push(`Industry: ${industryHits[0]}`)
-  }
-
-  const loc = normalize(job.location ?? '')
-  const remoteMatch = job.remote || loc.includes('remote')
-  const locationMatch = PROFILE.locations.some((l) => loc.includes(l))
-  if (remoteMatch || locationMatch) {
-    score += 10
-    reasons.push(remoteMatch ? 'Remote-friendly' : 'Location match')
-  } else if (loc.length > 0) {
-    score -= 15
-    reasons.push('Location may not match')
-  }
-
-  const bdPhraseSignals = [
-    'business development',
-    'account manager',
-    'account executive',
-    'partnership',
-    'sales manager',
-  ]
-  const bdGenericTitleSignals = ['b2b', 'revenue']
-  const bdSignalHit =
-    bdPhraseSignals.some((s) => blob.includes(s)) ||
-    bdGenericTitleSignals.some((s) => titleNorm.includes(s))
-  if (bdSignalHit) {
-    score += 8
-    if (!reasons.some((r) => r.startsWith('Title'))) reasons.push('BD/sales role signal')
-  }
-
-  score = Math.max(0, Math.min(100, score))
-  if (reasons.length === 0) reasons.push('Limited keyword overlap')
-  return { score, reasons }
-}
-
-// --- Providers ---
-
-async function fetchAdzuna(
-  term: string,
-  location: string,
-  appId: string,
-  appKey: string
-): Promise<NormalizedJob[]> {
-  const params = new URLSearchParams({
-    app_id: appId,
-    app_key: appKey,
-    what: term,
-    where: location,
-    results_per_page: '25',
-    content_type: 'jobs',
-    sort_by: 'date',
-  })
-  const url = `https://api.adzuna.com/v1/api/jobs/ca/search/1?${params}`
-  const res = await fetch(url)
-  if (!res.ok) {
-    console.error('Adzuna error', res.status, await res.text())
-    return []
-  }
-  const data = await res.json()
-  const results = data.results ?? []
-  return results.map((r: any): NormalizedJob => {
-    const desc = (r.description ?? '').replace(/<[^>]+>/g, ' ').slice(0, 4000)
-    const loc = r.location?.display_name ?? location
-    const remote = /remote|work from home|wfh/i.test(`${r.title} ${desc} ${loc}`)
-    return {
-      source: 'adzuna',
-      external_id: String(r.id),
-      title: r.title ?? 'Untitled',
-      company_name: r.company?.display_name ?? 'Unknown',
-      location: loc,
-      remote,
-      description: desc || null,
-      url: r.redirect_url ?? r.adref ?? null,
-      posted_at: r.created ? String(r.created).slice(0, 10) : null,
-    }
-  })
-}
-
-async function fetchIndeed(
-  term: string,
-  location: string,
-  publisherId: string
-): Promise<NormalizedJob[]> {
-  const params = new URLSearchParams({
-    publisher: publisherId,
-    q: term,
-    l: location,
-    format: 'json',
-    v: '2',
-    limit: '25',
-    co: 'ca',
-    userip: '1.2.3.4',
-    useragent: 'JobSearchCommandCenter/1.0',
-  })
-  const url = `https://api.indeed.com/ads/apisearch?${params}`
-  try {
-    const res = await fetch(url)
-    if (!res.ok) {
-      console.error('Indeed API error', res.status, await res.text())
-      return []
-    }
-    const data = await res.json()
-    const results = data.results ?? []
-    return results.map((r: any): NormalizedJob => ({
-      source: 'indeed',
-      external_id: String(r.jobkey ?? r.url ?? `${r.company}-${r.jobtitle}`),
-      title: r.jobtitle ?? 'Untitled',
-      company_name: r.company ?? 'Unknown',
-      location: r.formattedLocation ?? location,
-      remote: /remote/i.test(`${r.jobtitle} ${r.snippet ?? ''}`),
-      description: r.snippet ?? null,
-      url: r.url ?? null,
-      posted_at: r.date ? String(r.date).slice(0, 10) : null,
+function syntheticRemoteQueries(profileRows: SearchProfileRow[]): DiscoveryQuery[] {
+  return profileRows.flatMap((row) => {
+    const profile = toSearchProfile(row)
+    const terms = [...profile.primaryTitles, ...profile.titleAliases].slice(0, 3)
+    return terms.map((queryText, index) => ({
+      searchProfileId: row.id,
+      provider: 'remoteok' as const,
+      queryType: 'exact_title' as const,
+      queryText,
+      location: 'Remote',
+      priority: (row.priority ?? 100) + index,
+      lastRunAt: null,
+      lastResultCount: 0,
+      lastNewJobCount: 0,
     }))
-  } catch (e) {
-    console.error('Indeed fetch failed', e)
-    return []
-  }
+  })
 }
 
-/**
- * RemoteOK free public API — https://remoteok.com/api
- * No auth. Filter by search terms against title/description/tags.
- */
-async function fetchRemoteOK(terms: string[]): Promise<NormalizedJob[]> {
+function oldestAgeDays(page: ProviderPage): number | null {
+  const times = page.postings
+    .map((posting) => posting.postedAt ? new Date(posting.postedAt).getTime() : Number.NaN)
+    .filter(Number.isFinite)
+  if (times.length === 0) return null
+  return Math.max(0, (Date.now() - Math.min(...times)) / 86_400_000)
+}
+
+async function getAdzunaCredentials(supabase: any) {
+  let appId = Deno.env.get('ADZUNA_APP_ID') ?? undefined
+  let appKey = Deno.env.get('ADZUNA_APP_KEY') ?? undefined
+  if (appId && appKey) return { appId, appKey }
+
+  const { data, error } = await supabase.rpc('get_adzuna_credentials').maybeSingle()
+  if (error) console.error('get_adzuna_credentials RPC failed', error)
+  const value = Array.isArray(data) ? data[0] : data
+  appId = appId ?? value?.app_id ?? undefined
+  appKey = appKey ?? value?.app_key ?? undefined
+  return { appId, appKey }
+}
+
+Deno.serve(async (request) => {
+  if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+  if (request.method !== 'POST') return json({ ok: false, error: 'Method not allowed' }, 405)
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  if (!supabaseUrl || !serviceKey) {
+    return json({ ok: false, error: 'Missing Supabase Edge Function configuration' }, 500)
+  }
+
+  const supabase = createClient(supabaseUrl, serviceKey, {
+    db: { schema: 'job_search' },
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+
+  let body: TriggerBody = {}
   try {
-    const res = await fetch('https://remoteok.com/api', {
-      headers: {
-        'User-Agent': 'JobSearchCommandCenter/1.0 (personal; Tyler Campbell)',
+    body = await request.json()
+  } catch {
+    body = {}
+  }
+
+  const maxPages = Math.min(Math.max(Number(body.max_pages ?? 3), 1), 20)
+  const manual = body.source === 'manual'
+  const errors: string[] = []
+  const totals = emptyTotals()
+  let runId: string | null = null
+
+  try {
+    let profilesQuery = supabase
+      .from('search_profiles')
+      .select('*, scoring_configs(*)')
+      .eq('enabled', true)
+      .order('priority', { ascending: true })
+    if (body.profile_id) profilesQuery = profilesQuery.eq('id', body.profile_id)
+    const { data: profileData, error: profileError } = await profilesQuery
+    if (profileError) throw new Error(`Search profiles could not be loaded: ${profileError.message}`)
+    const profileRows = (profileData ?? []) as SearchProfileRow[]
+    if (profileRows.length === 0) throw new Error('No enabled search profiles matched this run.')
+
+    runId = await startDiscoveryRun(supabase, {
+      triggerType: runTrigger(body),
+      requestedProfileId: body.profile_id ?? null,
+      budgetSnapshot: {
+        adzuna: { minuteLimit: 25, dailyLimit: 250, manualReserve: 20 },
+        maxPages,
       },
     })
-    if (!res.ok) {
-      console.error('RemoteOK error', res.status, await res.text())
-      return []
-    }
-    const data = await res.json()
-    const jobs = (Array.isArray(data) ? data : []).filter(
-      (j: any) => j && j.id && j.position
+
+    const { appId: adzunaAppId, appKey: adzunaAppKey } = await getAdzunaCredentials(supabase)
+
+    let sourcesQuery = supabase
+      .from('company_job_sources')
+      .select('*, companies(name), search_profile_company_sources(search_profile_id,enabled)')
+      .eq('enabled', true)
+    if (body.company_source_id) sourcesQuery = sourcesQuery.eq('id', body.company_source_id)
+    const { data: sourceData, error: sourceError } = await sourcesQuery
+    if (sourceError) throw new Error(`Company ATS sources could not be loaded: ${sourceError.message}`)
+
+    const rawSources = (sourceData ?? []) as CompanySourceRow[]
+    const profileIds = new Set(profileRows.map((row) => row.id))
+    const filteredSources = rawSources.filter((row) => {
+      if (body.company_source_id) return true
+      const links = row.search_profile_company_sources ?? []
+      if (links.length === 0) return true
+      return links.some((link: any) => link.enabled && profileIds.has(String(link.search_profile_id)))
+    })
+    const companySources = scheduleCompanySources(
+      filteredSources.map((row) => ({
+        ...toCompanySource(row),
+        lastCheckedAt: row.last_checked_at ?? null,
+        pollIntervalMinutes: Number(row.poll_interval_minutes ?? 360),
+        row,
+      })),
+      new Date()
     )
 
-    const termList = terms.map((t) => t.toLowerCase()).filter(Boolean)
-    const normalized: NormalizedJob[] = []
+    for (const source of companySources) {
+      if (!body.force && !manual && body.company_source_id == null) {
+        // scheduleCompanySources already removed non-due entries.
+      }
+      totals.providers.add(source.provider)
+      const adapter = getProviderAdapter(source.provider)
+      const iterator = adapter.discover({
+        companySource: source,
+        pageSize: 100,
+        maxPages,
+      })[Symbol.asyncIterator]()
+      const observedExternalIds: string[] = []
+      let completeSnapshot = false
+      let pageNumber = 1
+      let sourceFailed = false
 
-    for (const j of jobs) {
-      const title = String(j.position || 'Untitled')
-      const descRaw = j.description ? String(j.description) : ''
-      const desc = descRaw.replace(/<[^>]+>/g, ' ').slice(0, 4000)
-      const tags = Array.isArray(j.tags)
-        ? j.tags.map((t: unknown) => String(t).toLowerCase())
-        : []
-      const blob = `${title} ${desc} ${tags.join(' ')}`.toLowerCase()
-
-      // Keep if any search term overlaps, or if BD/sales signal present when terms are set
-      const termHit =
-        termList.length === 0 ||
-        termList.some((t) => {
-          const words = t.split(/\s+/).filter((w) => w.length > 2)
-          return words.every((w) => blob.includes(w)) || blob.includes(t)
+      while (pageNumber <= maxPages) {
+        const stepId = await startRunStep(supabase, {
+          runId,
+          provider: source.provider,
+          companyJobSourceId: source.id,
+          pageNumber,
         })
+        try {
+          const next = await iterator.next()
+          if (next.done) {
+            await finishRunStep(supabase, stepId, { status: 'skipped', metadata: { reason: 'provider completed' } })
+            break
+          }
+          const page = next.value
+          totals.requestsUsed += page.requestsUsed
+          totals.postingsFetched += page.postings.length
+          observedExternalIds.push(...page.postings.map((posting) => posting.externalId))
+          let created = 0
+          let updated = 0
+          let merged = 0
 
-      if (!termHit) continue
+          for (const posting of page.postings) {
+            const result = await ingestPosting(supabase, posting, profileRows)
+            if (result.action === 'created') created += 1
+            else if (result.action === 'updated') updated += 1
+            else merged += 1
+          }
+          totals.created += created
+          totals.updated += updated
+          totals.merged += merged
+          completeSnapshot = page.completeSnapshot
 
-      let posted_at: string | null = null
-      if (j.date) {
-        const n = Number(j.date)
-        if (!Number.isNaN(n) && n > 1e9) {
-          posted_at = new Date(n * 1000).toISOString().slice(0, 10)
-        } else {
-          posted_at = String(j.date).slice(0, 10)
+          await finishRunStep(supabase, stepId, {
+            status: 'completed',
+            httpStatus: page.httpStatus,
+            resultsReceived: page.postings.length,
+            newJobs: created,
+            updatedJobs: updated,
+            mergedPostings: merged,
+            rateLimitRemaining: page.rateLimitRemaining,
+            retryAfterSeconds: page.retryAfterSeconds,
+            metadata: { completeSnapshot: page.completeSnapshot },
+          })
+          if (!page.nextCursor) break
+          pageNumber += 1
+        } catch (error) {
+          sourceFailed = true
+          totals.errors += 1
+          const message = error instanceof Error ? error.message : String(error)
+          errors.push(`${source.provider}:${source.boardKey}: ${message}`)
+          await finishRunStep(supabase, stepId, { status: 'failed', error: message })
+          await supabase.from('company_job_sources').update({
+            last_checked_at: new Date().toISOString(),
+            last_error_at: new Date().toISOString(),
+            last_error: message,
+            consecutive_failures: Number(source.row?.consecutive_failures ?? 0) + 1,
+          }).eq('id', source.id)
+          break
         }
       }
 
-      normalized.push({
-        source: 'remoteok',
-        external_id: String(j.id),
-        title,
-        company_name: String(j.company || 'Unknown'),
-        location: j.location ? String(j.location) : 'Remote',
-        remote: true,
-        description: desc || null,
-        url: j.url || j.apply_url ? String(j.url || j.apply_url) : null,
-        posted_at,
-      })
-    }
-
-    // Cap remoteok volume per run
-    return normalized.slice(0, 40)
-  } catch (e) {
-    console.error('RemoteOK fetch failed', e)
-    return []
-  }
-}
-
-// --- Main ---
-
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
-  }
-
-  try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const indeedPublisher = Deno.env.get('INDEED_PUBLISHER_ID')
-    // RemoteOK is always on unless explicitly disabled
-    const remoteOkEnabled = Deno.env.get('REMOTEOK_ENABLED') !== 'false'
-
-    const supabase = createClient(supabaseUrl, serviceKey, {
-      db: { schema: 'job_search' },
-      auth: { persistSession: false },
-    })
-
-    // Adzuna creds: prefer function secrets, fall back to Vault (job_search.get_adzuna_credentials)
-    let adzunaAppId = Deno.env.get('ADZUNA_APP_ID')
-    let adzunaAppKey = Deno.env.get('ADZUNA_APP_KEY')
-    if (!adzunaAppId || !adzunaAppKey) {
-      const { data: creds, error: credsError } = await supabase
-        .rpc('get_adzuna_credentials')
-        .maybeSingle()
-      if (credsError) {
-        console.error('get_adzuna_credentials RPC failed', credsError)
-      }
-      adzunaAppId = adzunaAppId || creds?.app_id || undefined
-      adzunaAppKey = adzunaAppKey || creds?.app_key || undefined
-    }
-
-    const { data: setting } = await supabase
-      .from('settings')
-      .select('value')
-      .eq('key', 'search_terms')
-      .maybeSingle()
-
-    const search: SearchTerms = (setting?.value as SearchTerms) ?? {
-      terms: ['business development manager', 'account executive'],
-      locations: ['Ottawa', 'Ontario', 'Remote'],
-    }
-
-    const terms = search.terms?.length ? search.terms : ['business development']
-    const locations = search.locations?.length ? search.locations : ['Canada']
-
-    const maxCombos = 12
-    const combos: { term: string; location: string }[] = []
-    for (const term of terms.slice(0, 6)) {
-      for (const location of locations.slice(0, 3)) {
-        combos.push({ term, location })
-        if (combos.length >= maxCombos) break
-      }
-      if (combos.length >= maxCombos) break
-    }
-
-    const collected: NormalizedJob[] = []
-
-    for (const { term, location } of combos) {
-      if (adzunaAppId && adzunaAppKey) {
-        const jobs = await fetchAdzuna(term, location, adzunaAppId, adzunaAppKey)
-        collected.push(...jobs)
-        await delay(300)
-      }
-      if (indeedPublisher) {
-        const jobs = await fetchIndeed(term, location, indeedPublisher)
-        collected.push(...jobs)
-        await delay(300)
+      if (!sourceFailed) {
+        const lifecycle = await completeCompanySnapshot(supabase, {
+          companyJobSourceId: source.id,
+          observedExternalIds,
+          complete: completeSnapshot,
+        })
+        totals.closed += lifecycle.closed
+        totals.reopened += lifecycle.reopened
       }
     }
 
-    let remoteOkCount = 0
-    if (remoteOkEnabled) {
-      const remoteJobs = await fetchRemoteOK(terms)
-      remoteOkCount = remoteJobs.length
-      collected.push(...remoteJobs)
-    }
+    let queryBuilder = supabase
+      .from('search_profile_queries')
+      .select('*')
+      .eq('enabled', true)
+    if (body.profile_id) queryBuilder = queryBuilder.eq('search_profile_id', body.profile_id)
+    const { data: queryData, error: queryError } = await queryBuilder
+    if (queryError) throw new Error(`Search queries could not be loaded: ${queryError.message}`)
+    const persistedQueries = (queryData ?? []).map((row) => toDiscoveryQuery(row))
+    const hasRemoteOk = persistedQueries.some((query) => query.provider === 'remoteok')
+    const scheduledQueries = scheduleQueries([
+      ...persistedQueries,
+      ...(hasRemoteOk ? [] : syntheticRemoteQueries(profileRows)),
+    ])
 
-    const seen = new Set<string>()
-    const unique = collected.filter((j) => {
-      const key = `${j.source}:${j.external_id}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-
-    let inserted = 0
-    let updated = 0
-    let skipped = 0
-
-    for (const job of unique) {
-      let companyId: string | null = null
-      const { data: existingCo } = await supabase
-        .from('companies')
-        .select('id')
-        .ilike('name', job.company_name)
-        .maybeSingle()
-
-      if (existingCo) {
-        companyId = existingCo.id
-      } else {
-        const { data: created, error: companyError } = await supabase
-          .from('companies')
-          .insert({ name: job.company_name })
-          .select('id')
-          .single()
-        if (companyError) {
-          console.error('Company insert error', job.company_name, companyError)
-        }
-        companyId = created?.id ?? null
-      }
-
-      const fit = scoreJob(job)
-
-      const { data: existing } = await supabase
-        .from('jobs')
-        .select('id, status')
-        .eq('source', job.source)
-        .eq('external_id', job.external_id)
-        .maybeSingle()
-
-      if (existing) {
-        if (existing.status === 'found') {
-          await supabase
-            .from('jobs')
-            .update({
-              fit_score: fit.score,
-              fit_reasons: fit.reasons,
-              fetched_at: new Date().toISOString(),
-            })
-            .eq('id', existing.id)
-          updated++
-        } else {
-          skipped++
-        }
+    for (const query of scheduledQueries) {
+      const profileRow = profileRows.find((row) => row.id === query.searchProfileId)
+      if (!profileRow) continue
+      if (query.provider === 'adzuna' && (!adzunaAppId || !adzunaAppKey)) {
+        errors.push(`adzuna:${query.queryText}: credentials are not configured`)
+        totals.errors += 1
         continue
       }
 
-      const { error } = await supabase.from('jobs').insert({
-        source: job.source,
-        external_id: job.external_id,
-        title: job.title,
-        company_id: companyId,
-        location: job.location,
-        remote: job.remote,
-        description: job.description,
-        url: job.url,
-        posted_at: job.posted_at,
-        status: 'found',
-        fit_score: fit.score,
-        fit_reasons: fit.reasons,
-      })
+      totals.providers.add(query.provider)
+      const adapter = getProviderAdapter(query.provider)
+      const iterator = adapter.discover({
+        query,
+        countryCode: profileRow.country_code,
+        pageSize: query.provider === 'adzuna' ? 50 : 100,
+        maxPages,
+        credentials: {
+          ADZUNA_APP_ID: adzunaAppId,
+          ADZUNA_APP_KEY: adzunaAppKey,
+        },
+      })[Symbol.asyncIterator]()
+      let pageNumber = 1
+      let queryResults = 0
+      let queryNew = 0
 
-      if (error) {
-        if (error.code === '23505') skipped++
-        else console.error('Insert error', error)
-      } else {
-        inserted++
+      while (pageNumber <= maxPages) {
+        if (query.provider === 'adzuna') {
+          const reservation = await reserveAdzunaRequest(supabase, { manual })
+          if (!reservation.allowed) {
+            const stepId = await startRunStep(supabase, {
+              runId,
+              provider: query.provider,
+              searchProfileId: query.searchProfileId,
+              searchProfileQueryId: query.id ?? null,
+              pageNumber,
+            })
+            await finishRunStep(supabase, stepId, {
+              status: 'rate_limited',
+              error: reservation.reason,
+            })
+            break
+          }
+        }
+
+        const stepId = await startRunStep(supabase, {
+          runId,
+          provider: query.provider,
+          searchProfileId: query.searchProfileId,
+          searchProfileQueryId: query.id ?? null,
+          pageNumber,
+        })
+        try {
+          const next = await iterator.next()
+          if (next.done) {
+            await finishRunStep(supabase, stepId, { status: 'skipped', metadata: { reason: 'provider completed' } })
+            break
+          }
+          const page = next.value
+          totals.requestsUsed += page.requestsUsed
+          totals.postingsFetched += page.postings.length
+          queryResults += page.postings.length
+          let created = 0
+          let updated = 0
+          let merged = 0
+
+          for (const posting of page.postings) {
+            const result = await ingestPosting(supabase, posting, profileRows)
+            if (result.action === 'created') created += 1
+            else if (result.action === 'updated') updated += 1
+            else merged += 1
+          }
+          queryNew += created
+          totals.created += created
+          totals.updated += updated
+          totals.merged += merged
+
+          await finishRunStep(supabase, stepId, {
+            status: 'completed',
+            httpStatus: page.httpStatus,
+            resultsReceived: page.postings.length,
+            newJobs: created,
+            updatedJobs: updated,
+            mergedPostings: merged,
+            rateLimitRemaining: page.rateLimitRemaining,
+            retryAfterSeconds: page.retryAfterSeconds,
+          })
+
+          const decision = shouldContinuePagination({
+            page: pageNumber,
+            maxPages,
+            resultCount: page.postings.length,
+            pageSize: query.provider === 'adzuna' ? 50 : 100,
+            newJobCount: created,
+            duplicateCount: updated + merged,
+            budgetRemaining: 1,
+            oldestResultAgeDays: oldestAgeDays(page),
+            maximumPostingAgeDays: profileRow.maximum_posting_age_days,
+          })
+          if (!page.nextCursor || !decision.continue) break
+          pageNumber += 1
+        } catch (error) {
+          totals.errors += 1
+          const message = error instanceof Error ? error.message : String(error)
+          errors.push(`${query.provider}:${query.queryText}:${query.location ?? ''}: ${message}`)
+          await finishRunStep(supabase, stepId, { status: 'failed', error: message })
+          break
+        }
+      }
+
+      if (query.id) {
+        await supabase.from('search_profile_queries').update({
+          last_run_at: new Date().toISOString(),
+          last_result_count: queryResults,
+          last_new_job_count: queryNew,
+        }).eq('id', query.id)
       }
     }
 
-    const summary = {
-      ok: true,
-      combos: combos.length,
-      fetched: collected.length,
-      unique: unique.length,
-      inserted,
-      updated,
-      skipped,
-      remoteok_matched: remoteOkCount,
-      providers: {
-        adzuna: Boolean(adzunaAppId && adzunaAppKey),
-        indeed: Boolean(indeedPublisher),
-        remoteok: remoteOkEnabled,
+    await expireStaleAggregators(supabase, 60)
+    const status = totals.errors === 0 ? 'completed' : totals.postingsFetched > 0 ? 'partial' : 'failed'
+    await finishDiscoveryRun(supabase, runId, totals, {
+      status,
+      errorSummary: errors.length > 0 ? errors.slice(0, 20).join('\n') : null,
+      summary: {
+        trigger: runTrigger(body),
+        profileCount: profileRows.length,
+        companySourceCount: companySources.length,
+        queryCount: scheduledQueries.length,
       },
-    }
+    })
 
-    console.log(JSON.stringify(summary))
-    return new Response(JSON.stringify(summary), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  } catch (err) {
-    console.error(err)
-    return new Response(JSON.stringify({ ok: false, error: String(err) }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return json({
+      ok: status !== 'failed',
+      discovery_run_id: runId,
+      status,
+      inserted: totals.created,
+      updated: totals.updated,
+      merged: totals.merged,
+      skipped: 0,
+      closed: totals.closed,
+      reopened: totals.reopened,
+      requests_used: totals.requestsUsed,
+      postings_fetched: totals.postingsFetched,
+      providers: [...totals.providers],
+      errors,
+    }, status === 'failed' ? 500 : 200)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error('Job Discovery V2 run failed', error)
+    totals.errors += 1
+    errors.push(message)
+    if (runId) {
+      try {
+        await finishDiscoveryRun(supabase, runId, totals, {
+          status: 'failed',
+          errorSummary: errors.join('\n'),
+        })
+      } catch (finishError) {
+        console.error('Discovery run failure could not be recorded', finishError)
+      }
+    }
+    return json({ ok: false, discovery_run_id: runId, error: message, errors }, 500)
   }
 })
-
-function delay(ms: number) {
-  return new Promise((r) => setTimeout(r, ms))
-}
