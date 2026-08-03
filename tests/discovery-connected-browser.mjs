@@ -58,8 +58,7 @@ try {
 
     await page.goto(`${baseUrl}/jobs`, { waitUntil: 'networkidle' })
     await page.getByRole('heading', { name: 'Strategic Partnerships Manager', exact: true }).first().waitFor()
-    const sourceSelect = page.getByLabel('Source', { exact: true })
-    await sourceSelect.locator('option[value="smartrecruiters"]').waitFor({ state: 'attached' })
+    await page.locator('select option[value="smartrecruiters"]').waitFor({ state: 'attached' })
     const evidenceButton = page.getByRole('button', { name: 'Discovery evidence' }).first()
     await evidenceButton.click()
     await page.getByText('Search-lane scores', { exact: true }).waitFor()
