@@ -1,5 +1,7 @@
 -- Job Discovery V2: canonical jobs and source-specific posting observations.
 
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 ALTER TABLE job_search.jobs
   ADD COLUMN IF NOT EXISTS canonical_key text,
   ADD COLUMN IF NOT EXISTS normalized_title text,
