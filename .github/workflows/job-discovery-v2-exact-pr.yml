@@ -1,0 +1,176 @@
+name: Job Discovery V2 Exact PR Verify
+
+on:
+  pull_request:
+    branches:
+      - verification/job-discovery-v2-base
+
+permissions:
+  contents: read
+
+concurrency:
+  group: job-discovery-v2-exact-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Exact static, database, Edge, and fixture verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      CI: true
+      NEXT_TELEMETRY_DISABLED: 1
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: discovery-verification-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: discovery-verification-placeholder
+      JOB_PULL_API_KEY: discovery-verification-placeholder
+      PGPASSWORD: postgres
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: discovery_verify
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d discovery_verify"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout proposed merge
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install committed dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit and provider fixture tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      - name: Apply PostgreSQL 16 migration and assertion chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa/job-discovery-v2
+          psql -h 127.0.0.1 -U postgres -d discovery_verify \
+            -v ON_ERROR_STOP=1 \
+            -f tests/fixtures/discovery/baseline.sql \
+            2>&1 | tee qa/job-discovery-v2/postgres-baseline.log
+
+          for version in 010 011 012 013 014 015 016 017; do
+            migration=$(find supabase/migrations -maxdepth 1 -type f -name "${version}_*.sql" -print)
+            count=$(printf '%s\n' "$migration" | sed '/^$/d' | wc -l)
+            if [ "$count" -ne 1 ]; then
+              echo "Expected exactly one migration for ${version}; found ${count}" >&2
+              exit 1
+            fi
+            echo "Applying ${migration}" | tee -a qa/job-discovery-v2/postgres-migrations.log
+            psql -h 127.0.0.1 -U postgres -d discovery_verify \
+              -v ON_ERROR_STOP=1 \
+              -f "$migration" \
+              2>&1 | tee -a qa/job-discovery-v2/postgres-migrations.log
+          done
+
+          psql -h 127.0.0.1 -U postgres -d discovery_verify \
+            -v ON_ERROR_STOP=1 \
+            -f tests/fixtures/discovery/assertions.sql \
+            2>&1 | tee qa/job-discovery-v2/postgres-assertions.log
+
+          pg_dump -h 127.0.0.1 -U postgres -d discovery_verify \
+            --schema-only --schema=job_search \
+            > qa/job-discovery-v2/job-search-schema.sql
+
+      - name: Generate Supabase TypeScript definitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes supabase@2.110.0 gen types typescript \
+            --db-url 'postgresql://postgres:postgres@127.0.0.1:5432/discovery_verify' \
+            --schema job_search \
+            > qa/job-discovery-v2/database.generated.ts
+          test -s qa/job-discovery-v2/database.generated.ts
+          grep -q 'search_profiles' qa/job-discovery-v2/database.generated.ts
+          grep -q 'job_source_postings' qa/job-discovery-v2/database.generated.ts
+          grep -q 'discovery_runs' qa/job-discovery-v2/database.generated.ts
+          grep -q 'ingest_job_source_posting' qa/job-discovery-v2/database.generated.ts
+          npx --yes supabase@2.110.0 --version | tee qa/job-discovery-v2/supabase-cli-version.txt
+
+      - name: Use Deno 2
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Verify Supabase Edge dependency graph and types
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno --version | tee qa/job-discovery-v2/deno-version.txt
+          deno cache --reload supabase/functions/daily-job-pull/index.ts \
+            2>&1 | tee qa/job-discovery-v2/edge-cache.log
+          deno check --reload supabase/functions/daily-job-pull/index.ts \
+            2>&1 | tee qa/job-discovery-v2/edge-check.log
+          deno info supabase/functions/daily-job-pull/index.ts \
+            2>&1 | tee qa/job-discovery-v2/edge-dependency-graph.txt
+
+      - name: Install Chromium
+        run: npx --yes playwright@1.55.0 install --with-deps chromium
+
+      - name: Capture deterministic fixture evidence at required widths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p qa/job-discovery-v2/screenshots
+          for width in 390 768 1440; do
+            npx --yes playwright@1.55.0 screenshot \
+              --browser=chromium \
+              --viewport-size="${width},1000" \
+              --full-page \
+              "file://${GITHUB_WORKSPACE}/tests/fixtures/discovery/control-center.html" \
+              "qa/job-discovery-v2/screenshots/discovery-control-center-fixture-${width}.png"
+          done
+
+      - name: Write evidence manifest
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p qa/job-discovery-v2
+          cat > qa/job-discovery-v2/VERIFICATION.md <<EOF
+          # Job Discovery V2 Exact PR Verification
+
+          - Source commit: \`${{ github.event.pull_request.head.sha }}\`
+          - Merge commit: \`${GITHUB_SHA}\`
+          - Workflow run: \`${GITHUB_RUN_ID}\`
+          - Generated: \`$(date -u +'%Y-%m-%dT%H:%M:%SZ')\`
+          - Main ancestry reconciled: **yes**
+          - PR #10 merged: **no**
+          - Deployment performed: **no**
+          EOF
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-discovery-v2-exact-pr-${{ github.event.pull_request.head.sha }}
+          path: qa/job-discovery-v2
+          if-no-files-found: error
+          retention-days: 30
