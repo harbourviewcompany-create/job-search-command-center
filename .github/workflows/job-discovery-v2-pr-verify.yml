@@ -14,9 +14,9 @@ concurrency:
 
 jobs:
   verify:
-    name: Static, database, provider, and visual verification
+    name: Static, database, Edge, and visual verification
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     env:
       CI: true
       NEXT_TELEMETRY_DISABLED: 1
@@ -96,26 +96,58 @@ jobs:
             -f tests/fixtures/discovery/assertions.sql \
             2>&1 | tee qa/job-discovery-v2/postgres-assertions.log
 
+          pg_dump -h 127.0.0.1 -U postgres -d discovery_verify \
+            --schema-only --schema=job_search \
+            > qa/job-discovery-v2/job-search-schema.sql
+
+      - name: Generate Supabase TypeScript definitions from migrated schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes supabase@2.110.0 gen types typescript \
+            --db-url 'postgresql://postgres:postgres@127.0.0.1:5432/discovery_verify' \
+            --schema job_search \
+            > qa/job-discovery-v2/database.generated.ts
+          test -s qa/job-discovery-v2/database.generated.ts
+          grep -q 'search_profiles' qa/job-discovery-v2/database.generated.ts
+          grep -q 'job_source_postings' qa/job-discovery-v2/database.generated.ts
+          grep -q 'discovery_runs' qa/job-discovery-v2/database.generated.ts
+          grep -q 'ingest_job_source_posting' qa/job-discovery-v2/database.generated.ts
+          npx --yes supabase@2.110.0 --version | tee qa/job-discovery-v2/supabase-cli-version.txt
+
+      - name: Use Deno 2
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Verify Supabase Edge Function dependency graph and types
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno --version | tee qa/job-discovery-v2/deno-version.txt
+          deno cache --reload supabase/functions/daily-job-pull/index.ts \
+            2>&1 | tee qa/job-discovery-v2/edge-cache.log
+          deno check --reload supabase/functions/daily-job-pull/index.ts \
+            2>&1 | tee qa/job-discovery-v2/edge-check.log
+          deno info supabase/functions/daily-job-pull/index.ts \
+            2>&1 | tee qa/job-discovery-v2/edge-dependency-graph.txt
+
       - name: Install Chromium
         run: npx --yes playwright@1.55.0 install --with-deps chromium
 
-      - name: Capture desktop and mobile control-center evidence
+      - name: Capture deterministic control-center fixture evidence
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p qa/job-discovery-v2/screenshots
-          npx --yes playwright@1.55.0 screenshot \
-            --browser=chromium \
-            --viewport-size="1440,1000" \
-            --full-page \
-            "file://${GITHUB_WORKSPACE}/tests/fixtures/discovery/control-center.html" \
-            qa/job-discovery-v2/screenshots/discovery-control-center-desktop-1440.png
-          npx --yes playwright@1.55.0 screenshot \
-            --browser=chromium \
-            --device="iPhone 13" \
-            --full-page \
-            "file://${GITHUB_WORKSPACE}/tests/fixtures/discovery/control-center.html" \
-            qa/job-discovery-v2/screenshots/discovery-control-center-mobile-390.png
+          for width in 390 768 1440; do
+            npx --yes playwright@1.55.0 screenshot \
+              --browser=chromium \
+              --viewport-size="${width},1000" \
+              --full-page \
+              "file://${GITHUB_WORKSPACE}/tests/fixtures/discovery/control-center.html" \
+              "qa/job-discovery-v2/screenshots/discovery-control-center-fixture-${width}.png"
+          done
 
       - name: Write evidence manifest
         if: always()
@@ -129,7 +161,8 @@ jobs:
           - Merge commit: \`${GITHUB_SHA}\`
           - Workflow run: \`${GITHUB_RUN_ID}\`
           - Generated: \`$(date -u +'%Y-%m-%dT%H:%M:%SZ')\`
-          - Merge performed: **no**
+          - Main ancestry reconciled: **yes**
+          - PR #10 merged: **no**
           - Production deployment performed: **no**
           EOF
 
@@ -139,5 +172,5 @@ jobs:
         with:
           name: job-discovery-v2-pr-evidence-${{ github.event.pull_request.head.sha }}
           path: qa/job-discovery-v2
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
