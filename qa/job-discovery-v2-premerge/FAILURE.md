@@ -1,7 +1,7 @@
 # Job Discovery V2 Remediation Failure
 
-- Workflow run: 
-- Starting head: 
-- Result: 
-- Merge performed: 
-- Deployment performed: 
+- Workflow run: 30860155335
+- Starting head: 094cf6bb3d3c086fd93e3582e6ca53363393f215
+- Result: failed before verified commit
+- Merge performed: no
+- Deployment performed: no
