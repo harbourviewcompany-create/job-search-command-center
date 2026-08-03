@@ -7,8 +7,7 @@ import {
   verifyJobPullAccessToken,
   verifyJobPullServiceKey,
 } from '@/lib/job-pull-auth'
-import { isDeterministicOperatorVerification } from '@/lib/operator-auth'
-import { createClient } from '@/lib/supabase/server'
+import { isAuthorizedOperatorSession, isDeterministicOperatorVerification } from '@/lib/operator-auth'
 
 export const runtime = 'nodejs'
 
@@ -20,9 +19,7 @@ function secureCookie(request: Request) {
 
 /** Reports whether the browser authorization can actually be revoked by DELETE. */
 export async function GET(request: NextRequest) {
-  const supabase = await createClient()
-  const { data, error } = await supabase.auth.getUser()
-  const sessionAuthorized = !error && Boolean(data.user)
+  const sessionAuthorized = await isAuthorizedOperatorSession()
   const cookieAuthorized = verifyJobPullAccessToken(
     request.cookies.get(JOB_PULL_ACCESS_COOKIE)?.value ?? null
   )

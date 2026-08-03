@@ -51,7 +51,7 @@ npm install
 2. Apply every tracked file in `supabase/migrations` in filename order. With the Supabase CLI, run `supabase db push` so the complete ordered migration set is applied rather than maintaining a manual shortlist.
 3. Confirm the migration history includes the provider-source expansions, operator-boundary RLS, and effective timestamp migrations.
 4. Copy the **Project URL**, **anon key**, and **service_role key** from Supabase project settings.
-5. Keep the service-role key server-only. `008_operator_boundary_rls.sql` makes browser database roles read-only and requires authorized server mutations to use the service role. `009_jobs_effective_timestamp.sql` adds the indexed effective timestamp used for database-side newest and oldest pagination.
+5. Keep the service-role key server-only. `010_operator_boundary_rls.sql` makes browser database roles read-only and requires authorized server mutations to use the service role. `011_jobs_effective_timestamp.sql` adds the indexed effective timestamp used for database-side newest and oldest pagination.
 
 ### 3. Environment
 
@@ -69,7 +69,7 @@ JOB_PULL_API_KEY=<long-random-secret>
 JOB_PULL_SESSION_SECRET=<optional-independent-cookie-signing-secret>
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` is required for protected mutations and must never appear in client code or a `NEXT_PUBLIC_*` variable. The anon key can read the tables needed by the current UI, but `008_operator_boundary_rls.sql` revokes its insert, update, delete, truncate, reference, trigger, and sequence privileges. Direct browser REST writes are denied by Postgres even when an application route is bypassed.
+`SUPABASE_SERVICE_ROLE_KEY` is required for protected mutations and must never appear in client code or a `NEXT_PUBLIC_*` variable. The anon key can read the tables needed by the current UI, but `010_operator_boundary_rls.sql` revokes its insert, update, delete, truncate, reference, trigger, and sequence privileges. Direct browser REST writes are denied by Postgres even when an application route is bypassed.
 
 `JOB_PULL_API_KEY` is required for the current single-user deployment unless Supabase Auth has been wired. It protects browser-triggered job creation, LinkedIn imports, job and application status changes, settings, contacts, packages, outreach, rescoring, and manual provider pulls. Open `/jobs`, enter this value in the **Operator access key** field, and select **Unlock operator**. The server validates the key and issues a signed, HttpOnly, SameSite=Strict browser cookie for 12 hours; the key is not stored in browser-readable state. Select **Lock** to remove cookie-based access. A Supabase-authenticated session is also accepted automatically. `JOB_PULL_SESSION_SECRET` is optional; when omitted, `JOB_PULL_API_KEY` signs the access cookie.
 
@@ -112,7 +112,7 @@ Vercel auto-deploys on every push to `main`.
 
 ## Data model (summary)
 
-See `supabase/migrations/001_initial_schema.sql` for the base DDL, the complete provider-source migrations for accepted source values, `008_operator_boundary_rls.sql` for database authorization, and `009_jobs_effective_timestamp.sql` for database-side date ordering. High-level:
+See `supabase/migrations/001_initial_schema.sql` for the base DDL, the complete provider-source migrations for accepted source values, `010_operator_boundary_rls.sql` for database authorization, and `011_jobs_effective_timestamp.sql` for database-side date ordering. High-level:
 
 - **companies** — name, domain, notes  
 - **jobs** — source, title, description, url, status (`found` / `interested` / `dismissed`)  
@@ -160,3 +160,8 @@ Supabase Edge Function on `pg_cron` (daily) calling Indeed + ZipRecruiter APIs w
 ## License
 
 Private — Harbourview / Tyler Campbell.
+
+
+### Operator authorization
+
+Supabase sessions receive operator privileges only when `OPERATOR_USER_ID` or `OPERATOR_EMAIL` matches the authenticated user. `JOB_PULL_API_KEY` remains the single-user browser unlock and must also be configured as the `daily-job-pull` Edge Function secret. The Vault secret `job_pull_auth_key` used by the scheduled pull must contain the same value.

@@ -5,7 +5,7 @@ import {
   verifyJobPullAccessToken,
   verifyJobPullServiceKey,
 } from '@/lib/job-pull-auth'
-import { createClient as createServerClient } from '@/lib/supabase/server'
+import { isAuthorizedOperatorSession } from '@/lib/operator-auth'
 
 export const runtime = 'nodejs'
 export const maxDuration = 180
@@ -28,9 +28,7 @@ async function isAuthorized(request: NextRequest) {
   const accessToken = request.cookies.get(JOB_PULL_ACCESS_COOKIE)?.value ?? null
   if (verifyJobPullAccessToken(accessToken)) return true
 
-  const sessionClient = await createServerClient()
-  const { data, error } = await sessionClient.auth.getUser()
-  return !error && Boolean(data.user)
+  return isAuthorizedOperatorSession()
 }
 
 function isConnectedRuntimeVerification(request: NextRequest) {
@@ -74,13 +72,12 @@ export async function POST(request: NextRequest) {
   }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const invocationKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const invocationKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const edgeSecret = process.env.JOB_PULL_API_KEY
 
-  if (!supabaseUrl || !invocationKey) {
+  if (!supabaseUrl || !invocationKey || !edgeSecret) {
     return NextResponse.json(
-      { ok: false, error: 'Missing Supabase URL or function invocation key' },
+      { ok: false, error: 'Missing Supabase URL, service-role invocation key, or Edge pull secret' },
       { status: 500 }
     )
   }
@@ -91,6 +88,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await functionClient.functions.invoke('daily-job-pull', {
     body: { source: 'manual', triggered_at: new Date().toISOString() },
+    headers: { 'x-job-pull-key': edgeSecret },
     timeout: FUNCTION_TIMEOUT_MS,
   })
 
