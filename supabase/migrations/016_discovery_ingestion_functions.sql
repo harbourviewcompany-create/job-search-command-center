@@ -1,16 +1,27 @@
 -- Job Discovery V2: deterministic normalization, canonical ingestion, lifecycle, and budget RPCs.
 
+CREATE EXTENSION IF NOT EXISTS unaccent;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE OR REPLACE FUNCTION job_search.normalize_discovery_text(value text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
 PARALLEL SAFE
 AS $$
-  SELECT trim(regexp_replace(lower(unaccent(coalesce(value, ''))), '[^a-z0-9+#.]+', ' ', 'g'));
+  SELECT trim(
+    regexp_replace(
+      lower(unaccent(coalesce(value, ''))),
+      '[^a-z0-9+#.]+',
+      ' ',
+      'g'
+    )
+  );
 $$;
 
-CREATE EXTENSION IF NOT EXISTS unaccent;
-
+-- Source URLs are intentionally excluded from the canonical key. Aggregators
+-- commonly wrap direct application URLs, so URL-first identity preserves the
+-- exact duplicates this release is designed to merge.
 CREATE OR REPLACE FUNCTION job_search.discovery_canonical_key(
   company_name text,
   job_title text,
@@ -25,15 +36,10 @@ PARALLEL SAFE
 AS $$
   SELECT encode(
     digest(
-      CASE
-        WHEN nullif(trim(coalesce(apply_url, '')), '') IS NOT NULL THEN
-          'url|' || regexp_replace(lower(apply_url), '[?#].*$', '')
-        ELSE
-          'job|' || job_search.normalize_discovery_text(company_name) || '|' ||
-          job_search.normalize_discovery_text(job_title) || '|' ||
-          job_search.normalize_discovery_text(job_location) || '|' ||
-          coalesce(to_char(date_trunc('week', posted_at), 'YYYY-MM-DD'), 'unknown')
-      END,
+      'job|' || job_search.normalize_discovery_text(company_name) || '|' ||
+      job_search.normalize_discovery_text(job_title) || '|' ||
+      job_search.normalize_discovery_text(job_location) || '|' ||
+      coalesce(to_char(date_trunc('week', posted_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD'), 'unknown'),
       'sha256'
     ),
     'hex'
@@ -47,42 +53,43 @@ SECURITY DEFINER
 SET search_path = job_search, public
 AS $$
 DECLARE
-  open_count integer;
-  unverified_count integer;
-  active_count integer;
-  previous_status text;
-  next_status text;
+  v_open integer := 0;
+  v_unverified integer := 0;
+  v_total integer := 0;
+  v_next text;
 BEGIN
-  SELECT lifecycle_status INTO previous_status
-  FROM jobs WHERE id = target_job_id FOR UPDATE;
-
   SELECT
     count(*) FILTER (WHERE lifecycle_status = 'open'),
     count(*) FILTER (WHERE lifecycle_status = 'unverified'),
-    count(*) FILTER (WHERE lifecycle_status IN ('open','unverified'))
-  INTO open_count, unverified_count, active_count
+    count(*)
+  INTO v_open, v_unverified, v_total
   FROM job_source_postings
   WHERE job_id = target_job_id;
 
-  next_status := CASE
-    WHEN open_count > 0 THEN 'open'
-    WHEN unverified_count > 0 THEN 'unverified'
-    WHEN active_count = 0 THEN 'closed'
-    ELSE 'expired'
+  v_next := CASE
+    WHEN v_open > 0 THEN 'open'
+    WHEN v_unverified > 0 THEN 'unverified'
+    WHEN v_total = 0 THEN 'closed'
+    ELSE 'closed'
   END;
 
   UPDATE jobs
-  SET lifecycle_status = next_status,
-      closed_at = CASE WHEN next_status IN ('closed','expired') THEN coalesce(closed_at, now()) ELSE NULL END,
+  SET lifecycle_status = v_next,
+      closed_at = CASE
+        WHEN v_next = 'closed' THEN coalesce(closed_at, now())
+        ELSE NULL
+      END,
       last_verified_at = (
-        SELECT max(last_verified_at) FROM job_source_postings WHERE job_id = target_job_id
+        SELECT max(last_verified_at)
+        FROM job_source_postings
+        WHERE job_id = target_job_id
       ),
       last_seen_at = (
-        SELECT max(last_seen_at) FROM job_source_postings WHERE job_id = target_job_id
+        SELECT max(last_seen_at)
+        FROM job_source_postings
+        WHERE job_id = target_job_id
       ),
-      source_count = (
-        SELECT count(*)::integer FROM job_source_postings WHERE job_id = target_job_id
-      )
+      source_count = v_total
   WHERE id = target_job_id;
 END;
 $$;
@@ -116,48 +123,55 @@ SECURITY DEFINER
 SET search_path = job_search, public
 AS $$
 DECLARE
-  resolved_company_id uuid;
-  resolved_job_id uuid;
-  resolved_posting_id uuid;
-  existing_posting record;
-  canonical_value text;
-  normalized_title_value text;
-  normalized_company_value text;
-  normalized_location_value text;
-  primary_source text;
-  source_rank integer;
-  current_rank integer;
+  v_company_id uuid;
+  v_job_id uuid;
+  v_posting_id uuid;
+  v_action text;
+  v_canonical_key text;
+  v_normalized_title text;
+  v_normalized_company text;
+  v_normalized_location text;
+  v_existing_posting job_source_postings%ROWTYPE;
+  v_current_source text;
+  v_new_rank integer;
+  v_current_rank integer;
 BEGIN
-  IF p_external_id IS NULL OR trim(p_external_id) = '' THEN
+  IF nullif(trim(coalesce(p_external_id, '')), '') IS NULL THEN
     RAISE EXCEPTION 'external_id is required';
   END IF;
-  IF p_company_name IS NULL OR trim(p_company_name) = '' THEN
+  IF nullif(trim(coalesce(p_company_name, '')), '') IS NULL THEN
     RAISE EXCEPTION 'company_name is required';
   END IF;
-  IF p_title IS NULL OR trim(p_title) = '' THEN
+  IF nullif(trim(coalesce(p_title, '')), '') IS NULL THEN
     RAISE EXCEPTION 'title is required';
   END IF;
 
-  normalized_title_value := job_search.normalize_discovery_text(p_title);
-  normalized_company_value := job_search.normalize_discovery_text(p_company_name);
-  normalized_location_value := job_search.normalize_discovery_text(p_location);
-  canonical_value := job_search.discovery_canonical_key(
-    p_company_name, p_title, p_location, p_posted_at, p_apply_url
+  v_normalized_title := job_search.normalize_discovery_text(p_title);
+  v_normalized_company := job_search.normalize_discovery_text(p_company_name);
+  v_normalized_location := job_search.normalize_discovery_text(p_location);
+  v_canonical_key := job_search.discovery_canonical_key(
+    p_company_name,
+    p_title,
+    p_location,
+    p_posted_at,
+    p_apply_url
   );
 
-  SELECT id INTO resolved_company_id
+  SELECT id
+  INTO v_company_id
   FROM companies
-  WHERE job_search.normalize_discovery_text(name) = normalized_company_value
-  ORDER BY created_at
+  WHERE job_search.normalize_discovery_text(name) = v_normalized_company
+  ORDER BY created_at, id
   LIMIT 1;
 
-  IF resolved_company_id IS NULL THEN
+  IF v_company_id IS NULL THEN
     INSERT INTO companies(name)
     VALUES (trim(p_company_name))
-    RETURNING id INTO resolved_company_id;
+    RETURNING id INTO v_company_id;
   END IF;
 
-  SELECT * INTO existing_posting
+  SELECT *
+  INTO v_existing_posting
   FROM job_source_postings
   WHERE source = p_source
     AND external_id = p_external_id
@@ -165,7 +179,9 @@ BEGIN
   LIMIT 1
   FOR UPDATE;
 
-  IF existing_posting.id IS NOT NULL THEN
+  IF v_existing_posting.id IS NOT NULL THEN
+    v_job_id := v_existing_posting.job_id;
+
     UPDATE job_source_postings
     SET search_profile_id = coalesce(p_search_profile_id, search_profile_id),
         source_url = coalesce(p_source_url, source_url),
@@ -182,12 +198,12 @@ BEGIN
         lifecycle_status = 'open',
         missed_snapshots = 0,
         content_hash = coalesce(p_content_hash, content_hash)
-    WHERE id = existing_posting.id
-    RETURNING id, job_source_postings.job_id INTO resolved_posting_id, resolved_job_id;
+    WHERE id = v_existing_posting.id
+    RETURNING id INTO v_posting_id;
 
     UPDATE jobs
     SET title = p_title,
-        company_id = resolved_company_id,
+        company_id = v_company_id,
         location = p_location,
         remote = p_remote,
         description = coalesce(p_description, description),
@@ -200,9 +216,10 @@ BEGIN
         salary_min = coalesce(p_salary_min, salary_min),
         salary_max = coalesce(p_salary_max, salary_max),
         salary_currency = coalesce(p_salary_currency, salary_currency),
-        normalized_title = normalized_title_value,
-        normalized_company = normalized_company_value,
-        normalized_location = normalized_location_value,
+        normalized_title = v_normalized_title,
+        normalized_company = v_normalized_company,
+        normalized_location = v_normalized_location,
+        canonical_key = v_canonical_key,
         last_seen_at = p_verified_at,
         last_verified_at = p_verified_at,
         lifecycle_status = 'open',
@@ -212,70 +229,164 @@ BEGIN
           ELSE description_changed_at
         END,
         content_hash = coalesce(p_content_hash, content_hash)
-    WHERE id = resolved_job_id;
+    WHERE id = v_job_id;
 
-    PERFORM job_search.recompute_job_lifecycle(resolved_job_id);
-    RETURN QUERY SELECT resolved_job_id, resolved_posting_id, 'updated'::text;
+    PERFORM job_search.recompute_job_lifecycle(v_job_id);
+    RETURN QUERY SELECT v_job_id, v_posting_id, 'updated'::text;
     RETURN;
   END IF;
 
-  SELECT id INTO resolved_job_id
+  SELECT id
+  INTO v_job_id
   FROM jobs
-  WHERE canonical_key = canonical_value
-  ORDER BY first_seen_at NULLS LAST, fetched_at
+  WHERE canonical_key = v_canonical_key
+  ORDER BY first_seen_at NULLS LAST, fetched_at, id
   LIMIT 1
   FOR UPDATE;
 
-  IF resolved_job_id IS NULL THEN
+  IF v_job_id IS NULL THEN
     INSERT INTO jobs (
-      source, external_id, title, company_id, location, remote, job_type,
-      description, url, posted_at, fetched_at, status,
-      canonical_key, normalized_title, normalized_company, normalized_location,
-      employment_type, seniority, remote_type, salary_min, salary_max,
-      salary_currency, first_seen_at, last_seen_at, last_verified_at,
-      lifecycle_status, preferred_source, source_count, content_hash,
+      source,
+      external_id,
+      title,
+      company_id,
+      location,
+      remote,
+      job_type,
+      description,
+      url,
+      posted_at,
+      fetched_at,
+      status,
+      canonical_key,
+      normalized_title,
+      normalized_company,
+      normalized_location,
+      employment_type,
+      seniority,
+      remote_type,
+      salary_min,
+      salary_max,
+      salary_currency,
+      first_seen_at,
+      last_seen_at,
+      last_verified_at,
+      lifecycle_status,
+      preferred_source,
+      source_count,
+      content_hash,
       canonicalization_version
     ) VALUES (
-      p_source, p_external_id, p_title, resolved_company_id, p_location, p_remote,
-      p_employment_type, p_description, coalesce(p_apply_url, p_source_url),
-      p_posted_at::date, p_verified_at, 'found',
-      canonical_value, normalized_title_value, normalized_company_value,
-      normalized_location_value, p_employment_type, p_seniority,
+      p_source,
+      p_external_id,
+      p_title,
+      v_company_id,
+      p_location,
+      p_remote,
+      p_employment_type,
+      p_description,
+      coalesce(p_apply_url, p_source_url),
+      p_posted_at::date,
+      p_verified_at,
+      'found',
+      v_canonical_key,
+      v_normalized_title,
+      v_normalized_company,
+      v_normalized_location,
+      p_employment_type,
+      p_seniority,
       coalesce(p_remote_type, CASE WHEN p_remote THEN 'remote' ELSE 'unknown' END),
-      p_salary_min, p_salary_max, p_salary_currency,
-      p_verified_at, p_verified_at, p_verified_at,
-      'open', p_source, 1, p_content_hash, 1
-    ) RETURNING id INTO resolved_job_id;
-    ingest_action := 'created';
+      p_salary_min,
+      p_salary_max,
+      p_salary_currency,
+      p_verified_at,
+      p_verified_at,
+      p_verified_at,
+      'open',
+      p_source,
+      1,
+      p_content_hash,
+      2
+    )
+    RETURNING id INTO v_job_id;
+    v_action := 'created';
   ELSE
-    ingest_action := 'merged';
+    v_action := 'merged';
   END IF;
 
   INSERT INTO job_source_postings (
-    job_id, source, external_id, company_job_source_id, search_profile_id,
-    source_url, apply_url, raw_title, raw_company_name, raw_location,
-    raw_description, raw_payload, posted_at, first_seen_at, last_seen_at,
-    last_verified_at, lifecycle_status, content_hash,
-    canonical_match_confidence, canonical_match_method
+    job_id,
+    source,
+    external_id,
+    company_job_source_id,
+    search_profile_id,
+    source_url,
+    apply_url,
+    raw_title,
+    raw_company_name,
+    raw_location,
+    raw_description,
+    raw_payload,
+    posted_at,
+    first_seen_at,
+    last_seen_at,
+    last_verified_at,
+    lifecycle_status,
+    content_hash,
+    canonical_match_confidence,
+    canonical_match_method
   ) VALUES (
-    resolved_job_id, p_source, p_external_id, p_company_job_source_id,
-    p_search_profile_id, p_source_url, p_apply_url, p_title, p_company_name,
-    p_location, p_description, coalesce(p_raw_payload, '{}'::jsonb), p_posted_at,
-    p_verified_at, p_verified_at, p_verified_at, 'open', p_content_hash,
-    CASE WHEN ingest_action = 'created' THEN 1 ELSE 0.9 END,
-    CASE WHEN ingest_action = 'created' THEN 'created' ELSE 'canonical_key' END
-  ) RETURNING id INTO resolved_posting_id;
+    v_job_id,
+    p_source,
+    p_external_id,
+    p_company_job_source_id,
+    p_search_profile_id,
+    p_source_url,
+    p_apply_url,
+    p_title,
+    p_company_name,
+    p_location,
+    p_description,
+    coalesce(p_raw_payload, '{}'::jsonb),
+    p_posted_at,
+    p_verified_at,
+    p_verified_at,
+    p_verified_at,
+    'open',
+    p_content_hash,
+    CASE WHEN v_action = 'created' THEN 1 ELSE 0.9 END,
+    CASE WHEN v_action = 'created' THEN 'created' ELSE 'canonical_key' END
+  )
+  RETURNING id INTO v_posting_id;
 
-  source_rank := CASE p_source
-    WHEN 'greenhouse' THEN 100 WHEN 'lever' THEN 100 WHEN 'ashby' THEN 100
-    WHEN 'smartrecruiters' THEN 100 WHEN 'manual' THEN 90 WHEN 'linkedin' THEN 80
-    WHEN 'adzuna' THEN 60 WHEN 'remoteok' THEN 50 ELSE 40 END;
+  v_new_rank := CASE p_source
+    WHEN 'greenhouse' THEN 100
+    WHEN 'lever' THEN 100
+    WHEN 'ashby' THEN 100
+    WHEN 'smartrecruiters' THEN 100
+    WHEN 'manual' THEN 90
+    WHEN 'linkedin' THEN 80
+    WHEN 'adzuna' THEN 60
+    WHEN 'remoteok' THEN 50
+    ELSE 40
+  END;
 
-  SELECT preferred_source INTO primary_source FROM jobs WHERE id = resolved_job_id;
-  current_rank := CASE primary_source
-    WHEN 'greenhouse' THEN 100 WHEN 'lever' THEN 100 WHEN 'ashby' THEN 100
-    WHEN 'smartrecruiters' THEN 100 WHEN 'manual' THEN 90 WHEN 'linkedin' THEN 80
-    WHEN 'adzuna' THEN 60 WHEN 'remoteok' THEN 50 ELSE 40 END;
+  SELECT preferred_source
+  INTO v_current_source
+  FROM jobs
+  WHERE id = v_job_id;
+
+  v_current_rank := CASE v_current_source
+    WHEN 'greenhouse' THEN 100
+    WHEN 'lever' THEN 100
+    WHEN 'ashby' THEN 100
+    WHEN 'smartrecruiters' THEN 100
+    WHEN 'manual' THEN 90
+    WHEN 'linkedin' THEN 80
+    WHEN 'adzuna' THEN 60
+    WHEN 'remoteok' THEN 50
+    ELSE 40
+  END;
 
   UPDATE jobs
   SET first_seen_at = coalesce(first_seen_at, p_verified_at),
@@ -283,18 +394,38 @@ BEGIN
       last_verified_at = greatest(coalesce(last_verified_at, p_verified_at), p_verified_at),
       lifecycle_status = 'open',
       closed_at = NULL,
-      source_count = (SELECT count(*)::integer FROM job_source_postings WHERE job_id = resolved_job_id),
-      preferred_source = CASE WHEN source_rank > current_rank THEN p_source ELSE coalesce(preferred_source, p_source) END,
-      url = CASE WHEN source_rank > current_rank THEN coalesce(p_apply_url, p_source_url, url) ELSE url END,
-      description = CASE WHEN source_rank > current_rank AND p_description IS NOT NULL THEN p_description ELSE description END,
-      content_hash = coalesce(p_content_hash, content_hash)
-  WHERE id = resolved_job_id;
+      source_count = (
+        SELECT count(*)::integer
+        FROM job_source_postings
+        WHERE job_id = v_job_id
+      ),
+      preferred_source = CASE
+        WHEN v_new_rank > v_current_rank THEN p_source
+        ELSE coalesce(preferred_source, p_source)
+      END,
+      source = CASE WHEN v_new_rank > v_current_rank THEN p_source ELSE source END,
+      external_id = CASE WHEN v_new_rank > v_current_rank THEN p_external_id ELSE external_id END,
+      url = CASE
+        WHEN v_new_rank > v_current_rank THEN coalesce(p_apply_url, p_source_url, url)
+        ELSE url
+      END,
+      description = CASE
+        WHEN v_new_rank > v_current_rank AND p_description IS NOT NULL THEN p_description
+        ELSE description
+      END,
+      content_hash = coalesce(p_content_hash, content_hash),
+      canonicalization_version = 2
+  WHERE id = v_job_id;
 
   UPDATE job_source_postings
-  SET is_primary = (source = (SELECT preferred_source FROM jobs WHERE id = resolved_job_id))
-  WHERE job_source_postings.job_id = resolved_job_id;
+  SET is_primary = source = (
+    SELECT preferred_source
+    FROM jobs
+    WHERE id = v_job_id
+  )
+  WHERE job_source_postings.job_id = v_job_id;
 
-  RETURN QUERY SELECT resolved_job_id, resolved_posting_id, ingest_action;
+  RETURN QUERY SELECT v_job_id, v_posting_id, v_action;
 END;
 $$;
 
@@ -310,9 +441,10 @@ SECURITY DEFINER
 SET search_path = job_search, public
 AS $$
 DECLARE
-  affected_job uuid;
-  closed_count integer := 0;
-  reopened_count integer := 0;
+  v_job uuid;
+  v_closed integer := 0;
+  v_reopened integer := 0;
+  v_observed text[] := coalesce(p_observed_external_ids, ARRAY[]::text[]);
 BEGIN
   IF NOT p_complete THEN
     UPDATE company_job_sources
@@ -324,13 +456,17 @@ BEGIN
 
   WITH reopened AS (
     UPDATE job_source_postings
-    SET lifecycle_status = 'open', missed_snapshots = 0, removed_at = NULL,
-        last_seen_at = p_verified_at, last_verified_at = p_verified_at
+    SET lifecycle_status = 'open',
+        missed_snapshots = 0,
+        removed_at = NULL,
+        last_seen_at = p_verified_at,
+        last_verified_at = p_verified_at
     WHERE company_job_source_id = p_company_job_source_id
-      AND external_id = ANY(coalesce(p_observed_external_ids, ARRAY[]::text[]))
+      AND external_id = ANY(v_observed)
       AND lifecycle_status <> 'open'
     RETURNING 1
-  ) SELECT count(*) INTO reopened_count FROM reopened;
+  )
+  SELECT count(*) INTO v_reopened FROM reopened;
 
   UPDATE job_source_postings
   SET missed_snapshots = 0,
@@ -339,40 +475,52 @@ BEGIN
       last_seen_at = p_verified_at,
       last_verified_at = p_verified_at
   WHERE company_job_source_id = p_company_job_source_id
-    AND external_id = ANY(coalesce(p_observed_external_ids, ARRAY[]::text[]));
+    AND external_id = ANY(v_observed);
 
   WITH changed AS (
     UPDATE job_source_postings
     SET missed_snapshots = missed_snapshots + 1,
-        lifecycle_status = CASE WHEN missed_snapshots + 1 >= 2 THEN 'closed' ELSE 'unverified' END,
-        removed_at = CASE WHEN missed_snapshots + 1 >= 2 THEN p_verified_at ELSE removed_at END,
+        lifecycle_status = CASE
+          WHEN missed_snapshots + 1 >= 2 THEN 'closed'
+          ELSE 'unverified'
+        END,
+        removed_at = CASE
+          WHEN missed_snapshots + 1 >= 2 THEN p_verified_at
+          ELSE removed_at
+        END,
         last_verified_at = p_verified_at
     WHERE company_job_source_id = p_company_job_source_id
-      AND NOT (external_id = ANY(coalesce(p_observed_external_ids, ARRAY[]::text[])))
-      AND lifecycle_status IN ('open','unverified')
+      AND NOT (external_id = ANY(v_observed))
+      AND lifecycle_status IN ('open', 'unverified')
     RETURNING lifecycle_status
-  ) SELECT count(*) FILTER (WHERE lifecycle_status = 'closed') INTO closed_count FROM changed;
+  )
+  SELECT count(*) FILTER (WHERE lifecycle_status = 'closed')
+  INTO v_closed
+  FROM changed;
 
-  FOR affected_job IN
-    SELECT DISTINCT job_id FROM job_source_postings
+  FOR v_job IN
+    SELECT DISTINCT job_id
+    FROM job_source_postings
     WHERE company_job_source_id = p_company_job_source_id
   LOOP
-    PERFORM job_search.recompute_job_lifecycle(affected_job);
+    PERFORM job_search.recompute_job_lifecycle(v_job);
   END LOOP;
 
   UPDATE company_job_sources
   SET last_checked_at = p_verified_at,
       last_success_at = p_verified_at,
       last_error = NULL,
+      last_error_at = NULL,
       consecutive_failures = 0,
       active_job_count = (
-        SELECT count(*)::integer FROM job_source_postings
+        SELECT count(*)::integer
+        FROM job_source_postings
         WHERE company_job_source_id = p_company_job_source_id
           AND lifecycle_status = 'open'
       )
   WHERE id = p_company_job_source_id;
 
-  RETURN QUERY SELECT closed_count, reopened_count;
+  RETURN QUERY SELECT v_closed, v_reopened;
 END;
 $$;
 
@@ -386,27 +534,30 @@ SECURITY DEFINER
 SET search_path = job_search, public
 AS $$
 DECLARE
-  changed_count integer;
-  affected_job uuid;
+  v_changed integer := 0;
+  v_job uuid;
 BEGIN
   WITH changed AS (
     UPDATE job_source_postings
-    SET lifecycle_status = 'expired', removed_at = coalesce(removed_at, p_verified_at)
-    WHERE source IN ('adzuna','remoteok','indeed','ziprecruiter')
-      AND lifecycle_status IN ('open','unverified')
+    SET lifecycle_status = 'expired',
+        removed_at = coalesce(removed_at, p_verified_at)
+    WHERE source IN ('adzuna', 'remoteok', 'indeed', 'ziprecruiter')
+      AND lifecycle_status IN ('open', 'unverified')
       AND last_seen_at < p_verified_at - p_max_age
     RETURNING job_id
-  ) SELECT count(*) INTO changed_count FROM changed;
+  )
+  SELECT count(*) INTO v_changed FROM changed;
 
-  FOR affected_job IN
-    SELECT DISTINCT job_id FROM job_source_postings
-    WHERE source IN ('adzuna','remoteok','indeed','ziprecruiter')
+  FOR v_job IN
+    SELECT DISTINCT job_id
+    FROM job_source_postings
+    WHERE source IN ('adzuna', 'remoteok', 'indeed', 'ziprecruiter')
       AND lifecycle_status = 'expired'
   LOOP
-    PERFORM job_search.recompute_job_lifecycle(affected_job);
+    PERFORM job_search.recompute_job_lifecycle(v_job);
   END LOOP;
 
-  RETURN changed_count;
+  RETURN v_changed;
 END;
 $$;
 
@@ -425,39 +576,53 @@ SECURITY DEFINER
 SET search_path = job_search, public
 AS $$
 DECLARE
-  budget_row provider_rate_budgets%ROWTYPE;
-  usable_limit integer;
+  v_budget provider_rate_budgets%ROWTYPE;
+  v_usable_limit integer;
 BEGIN
   INSERT INTO provider_rate_budgets (
-    provider, bucket_type, bucket_start, request_limit, requests_used,
-    reserved_requests, reset_at
+    provider,
+    bucket_type,
+    bucket_start,
+    request_limit,
+    requests_used,
+    reserved_requests,
+    reset_at
   ) VALUES (
-    p_provider, p_bucket_type, p_bucket_start, p_request_limit, 0,
-    p_reserved_requests, p_reset_at
-  ) ON CONFLICT (provider, bucket_type, bucket_start)
-  DO UPDATE SET request_limit = EXCLUDED.request_limit,
-                reserved_requests = EXCLUDED.reserved_requests,
-                reset_at = EXCLUDED.reset_at,
-                updated_at = now();
+    p_provider,
+    p_bucket_type,
+    p_bucket_start,
+    p_request_limit,
+    0,
+    p_reserved_requests,
+    p_reset_at
+  )
+  ON CONFLICT (provider, bucket_type, bucket_start)
+  DO UPDATE SET
+    request_limit = EXCLUDED.request_limit,
+    reserved_requests = EXCLUDED.reserved_requests,
+    reset_at = EXCLUDED.reset_at,
+    updated_at = now();
 
-  SELECT * INTO budget_row
+  SELECT *
+  INTO v_budget
   FROM provider_rate_budgets
   WHERE provider = p_provider
     AND bucket_type = p_bucket_type
     AND bucket_start = p_bucket_start
   FOR UPDATE;
 
-  usable_limit := CASE
-    WHEN p_manual THEN budget_row.request_limit
-    ELSE greatest(0, budget_row.request_limit - budget_row.reserved_requests)
+  v_usable_limit := CASE
+    WHEN p_manual THEN v_budget.request_limit
+    ELSE greatest(0, v_budget.request_limit - v_budget.reserved_requests)
   END;
 
-  IF budget_row.requests_used >= usable_limit THEN
+  IF v_budget.requests_used >= v_usable_limit THEN
     RETURN false;
   END IF;
 
   UPDATE provider_rate_budgets
-  SET requests_used = requests_used + 1, updated_at = now()
+  SET requests_used = requests_used + 1,
+      updated_at = now()
   WHERE provider = p_provider
     AND bucket_type = p_bucket_type
     AND bucket_start = p_bucket_start;
@@ -470,6 +635,7 @@ REVOKE ALL ON FUNCTION job_search.ingest_job_source_posting(text,text,text,text,
 REVOKE ALL ON FUNCTION job_search.mark_source_snapshot_complete(uuid,text[],boolean,timestamptz) FROM PUBLIC;
 REVOKE ALL ON FUNCTION job_search.expire_stale_aggregator_postings(interval,timestamptz) FROM PUBLIC;
 REVOKE ALL ON FUNCTION job_search.reserve_provider_request(text,text,timestamptz,integer,integer,timestamptz,boolean) FROM PUBLIC;
+
 GRANT EXECUTE ON FUNCTION job_search.ingest_job_source_posting(text,text,text,text,text,boolean,text,text,text,timestamptz,text,text,text,numeric,numeric,text,uuid,uuid,text,jsonb,timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION job_search.mark_source_snapshot_complete(uuid,text[],boolean,timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION job_search.expire_stale_aggregator_postings(interval,timestamptz) TO service_role;
