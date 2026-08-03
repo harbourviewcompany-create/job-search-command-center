@@ -13,6 +13,8 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: 'Invalid job identity.' }, { status: 400 })
   }
 
+  // Removed once src/types/database.ts is regenerated for migrations 010–017.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase = (await createClient()) as any
   const [jobResult, sourceResult, scoreResult] = await Promise.all([
     supabase
@@ -42,6 +44,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: 'Job not found.' }, { status: 404 })
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scores = (scoreResult.data ?? []).map((score: any) => ({
     ...score,
     profile_name: Array.isArray(score.search_profiles)
