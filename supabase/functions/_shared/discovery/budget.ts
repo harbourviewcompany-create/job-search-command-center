@@ -25,36 +25,23 @@ export async function reserveAdzunaRequest(
 ): Promise<{ allowed: boolean; reason: string }> {
   const now = input.now ?? new Date()
   const config = { ...DEFAULT_ADZUNA_BUDGET, ...(input.config ?? {}) }
-  const buckets = [
-    {
-      type: 'minute' as const,
-      start: bucketStart(now, 'minute'),
-      limit: config.minuteLimit,
-      reserve: config.minuteReserve,
-      reset: new Date(bucketStart(now, 'minute').getTime() + 60_000),
-    },
-    {
-      type: 'day' as const,
-      start: bucketStart(now, 'day'),
-      limit: config.dailyLimit,
-      reserve: config.dailyReserve,
-      reset: new Date(bucketStart(now, 'day').getTime() + 86_400_000),
-    },
-  ]
+  const minuteStart = bucketStart(now, 'minute')
+  const dailyStart = bucketStart(now, 'day')
 
-  for (const bucket of buckets) {
-    const { data, error } = await supabase.rpc('reserve_provider_request', {
-      p_provider: 'adzuna',
-      p_bucket_type: bucket.type,
-      p_bucket_start: bucket.start.toISOString(),
-      p_request_limit: bucket.limit,
-      p_reserved_requests: bucket.reserve,
-      p_reset_at: bucket.reset.toISOString(),
-      p_manual: input.manual,
-    })
-    if (error) throw new Error(`Budget reservation failed: ${error.message}`)
-    if (data !== true) return { allowed: false, reason: `${bucket.type} Adzuna budget is exhausted.` }
-  }
-
-  return { allowed: true, reason: 'Adzuna request reserved.' }
+  const { data, error } = await supabase.rpc('reserve_provider_requests', {
+    p_provider: 'adzuna',
+    p_minute_bucket_start: minuteStart.toISOString(),
+    p_minute_limit: config.minuteLimit,
+    p_minute_reserved: config.minuteReserve,
+    p_minute_reset_at: new Date(minuteStart.getTime() + 60_000).toISOString(),
+    p_daily_bucket_start: dailyStart.toISOString(),
+    p_daily_limit: config.dailyLimit,
+    p_daily_reserved: config.dailyReserve,
+    p_daily_reset_at: new Date(dailyStart.getTime() + 86_400_000).toISOString(),
+    p_manual: input.manual,
+  })
+  if (error) throw new Error(`Atomic budget reservation failed: ${error.message}`)
+  return data === true
+    ? { allowed: true, reason: 'Adzuna minute and daily requests reserved atomically.' }
+    : { allowed: false, reason: 'Adzuna minute or daily budget is exhausted.' }
 }
