@@ -93,10 +93,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p qa/job-discovery-v2-premerge
-          psql -h 127.0.0.1 -U postgres -d discovery_verify \
-            -v ON_ERROR_STOP=1 \
-            -f tests/fixtures/discovery/baseline.sql \
-            2>&1 | tee qa/job-discovery-v2-premerge/postgres-baseline.log
+          psql -h 127.0.0.1 -U postgres -d discovery_verify -v ON_ERROR_STOP=1 -f tests/fixtures/discovery/baseline.sql 2>&1 | tee qa/job-discovery-v2-premerge/postgres-baseline.log
           for version in 010 011 012 013 014 015 016 017 018; do
             migration=$(find supabase/migrations -maxdepth 1 -type f -name "${version}_*.sql" -print)
             count=$(printf '%s\n' "$migration" | sed '/^$/d' | wc -l)
@@ -105,27 +102,16 @@ jobs:
               exit 1
             fi
             echo "Applying ${migration}" | tee -a qa/job-discovery-v2-premerge/postgres-migrations.log
-            psql -h 127.0.0.1 -U postgres -d discovery_verify \
-              -v ON_ERROR_STOP=1 \
-              -f "$migration" \
-              2>&1 | tee -a qa/job-discovery-v2-premerge/postgres-migrations.log
+            psql -h 127.0.0.1 -U postgres -d discovery_verify -v ON_ERROR_STOP=1 -f "$migration" 2>&1 | tee -a qa/job-discovery-v2-premerge/postgres-migrations.log
           done
-          psql -h 127.0.0.1 -U postgres -d discovery_verify \
-            -v ON_ERROR_STOP=1 \
-            -f tests/fixtures/discovery/assertions.sql \
-            2>&1 | tee qa/job-discovery-v2-premerge/postgres-assertions.log
-          pg_dump -h 127.0.0.1 -U postgres -d discovery_verify \
-            --schema-only --schema=job_search \
-            > qa/job-discovery-v2-premerge/job-search-schema.sql
+          psql -h 127.0.0.1 -U postgres -d discovery_verify -v ON_ERROR_STOP=1 -f tests/fixtures/discovery/assertions.sql 2>&1 | tee qa/job-discovery-v2-premerge/postgres-assertions.log
+          pg_dump -h 127.0.0.1 -U postgres -d discovery_verify --schema-only --schema=job_search > qa/job-discovery-v2-premerge/job-search-schema.sql
 
       - name: Regenerate committed database types
         shell: bash
         run: |
           set -euo pipefail
-          npx --yes supabase@2.110.0 gen types typescript \
-            --db-url 'postgresql://postgres:postgres@127.0.0.1:5432/discovery_verify' \
-            --schema job_search \
-            > src/types/database.ts
+          npx --yes supabase@2.110.0 gen types typescript --db-url 'postgresql://postgres:postgres@127.0.0.1:5432/discovery_verify' --schema job_search > src/types/database.ts
           test -s src/types/database.ts
           grep -q 'search_profiles' src/types/database.ts
           grep -q 'reserve_provider_requests' src/types/database.ts
@@ -141,12 +127,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          deno cache --reload supabase/functions/daily-job-pull/index.ts \
-            2>&1 | tee qa/job-discovery-v2-premerge/edge-cache.log
-          deno check --reload supabase/functions/daily-job-pull/index.ts \
-            2>&1 | tee qa/job-discovery-v2-premerge/edge-check.log
-          deno info supabase/functions/daily-job-pull/index.ts \
-            2>&1 | tee qa/job-discovery-v2-premerge/edge-dependency-graph.txt
+          deno cache --reload supabase/functions/daily-job-pull/index.ts 2>&1 | tee qa/job-discovery-v2-premerge/edge-cache.log
+          deno check --reload supabase/functions/daily-job-pull/index.ts 2>&1 | tee qa/job-discovery-v2-premerge/edge-check.log
+          deno info supabase/functions/daily-job-pull/index.ts 2>&1 | tee qa/job-discovery-v2-premerge/edge-dependency-graph.txt
 
       - name: Capture deterministic browser evidence
         shell: bash
@@ -155,34 +138,23 @@ jobs:
           npx --yes playwright@1.55.0 install --with-deps chromium
           mkdir -p qa/job-discovery-v2-premerge/screenshots
           for width in 390 768 1440; do
-            npx --yes playwright@1.55.0 screenshot \
-              --browser=chromium \
-              --viewport-size="${width},1000" \
-              --full-page \
-              "file://${GITHUB_WORKSPACE}/tests/fixtures/discovery/control-center.html" \
-              "qa/job-discovery-v2-premerge/screenshots/discovery-control-center-${width}.png"
+            npx --yes playwright@1.55.0 screenshot --browser=chromium --viewport-size="${width},1000" --full-page "file://${GITHUB_WORKSPACE}/tests/fixtures/discovery/control-center.html" "qa/job-discovery-v2-premerge/screenshots/discovery-control-center-${width}.png"
           done
 
       - name: Restore permanent workflow and commit verified merge
         shell: bash
         run: |
           set -euo pipefail
-          git show HEAD^:.github/workflows/job-discovery-v2-verify.yml > .github/workflows/job-discovery-v2-verify.yml
+          git show aa24075d1857f2e145c4256b0f1956d6b9c339b7:.github/workflows/job-discovery-v2-verify.yml > .github/workflows/job-discovery-v2-verify.yml
           python3 - <<'PY'
           from pathlib import Path
           path = Path('.github/workflows/job-discovery-v2-verify.yml')
           text = path.read_text()
-          text = text.replace(
-              'for version in 010 011 012 013 014 015 016 017; do',
-              'for version in 010 011 012 013 014 015 016 017 018; do',
-          )
-          text = text.replace(
-              '> qa/job-discovery-v2/database.generated.ts',
-              '> qa/job-discovery-v2/database.generated.ts\n          cp qa/job-discovery-v2/database.generated.ts src/types/database.ts',
-          )
+          text = text.replace('for version in 010 011 012 013 014 015 016 017; do', 'for version in 010 011 012 013 014 015 016 017 018; do')
+          text = text.replace('> qa/job-discovery-v2/database.generated.ts', '> qa/job-discovery-v2/database.generated.ts\n          cp qa/job-discovery-v2/database.generated.ts src/types/database.ts')
           path.write_text(text)
           PY
-          rm -f scripts/.pr10-payload-* scripts/run-pr10-remediation.py
+          rm -f scripts/.pr10-payload-* scripts/run-pr10-remediation.py scripts/.pr10-trigger
           cat > qa/job-discovery-v2-premerge/REMEDIATION.md <<EOF
           # Job Discovery V2 Pre-Merge Remediation
 
