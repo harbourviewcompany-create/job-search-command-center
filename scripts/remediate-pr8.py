@@ -1,0 +1,250 @@
+from pathlib import Path
+import re
+
+root = Path('.')
+
+# Assign unique, monotonic migration versions after main's 008/009.
+old_008 = root / 'supabase/migrations/008_operator_boundary_rls.sql'
+old_009 = root / 'supabase/migrations/009_jobs_effective_timestamp.sql'
+new_010 = root / 'supabase/migrations/010_operator_boundary_rls.sql'
+new_011 = root / 'supabase/migrations/011_jobs_effective_timestamp.sql'
+if old_008.exists():
+    old_008.rename(new_010)
+if old_009.exists():
+    old_009.rename(new_011)
+if not new_010.exists() or not new_011.exists():
+    raise SystemExit('expected PR8 migrations were not found')
+
+for p in list(root.rglob('*.md')) + list(root.rglob('*.yml')) + list(root.rglob('*.yaml')) + list(root.rglob('*.mjs')) + [root / '.env.example']:
+    if not p.exists() or '.git' in p.parts:
+        continue
+    text = p.read_text()
+    text = text.replace('008_operator_boundary_rls.sql', '010_operator_boundary_rls.sql')
+    text = text.replace('009_jobs_effective_timestamp.sql', '011_jobs_effective_timestamp.sql')
+    text = text.replace('under migration 008', 'under migration 010')
+    p.write_text(text)
+
+(root / 'src/lib/operator-auth.ts').write_text("""import 'server-only'
+
+import type { User } from '@supabase/supabase-js'
+import { cookies } from 'next/headers'
+import {
+  isJobPullAccessConfigured,
+  JOB_PULL_ACCESS_COOKIE,
+  verifyJobPullAccessToken,
+} from '@/lib/job-pull-auth'
+import { createClient } from '@/lib/supabase/server'
+
+function normalized(value: string | null | undefined) {
+  return value?.trim().toLowerCase() ?? ''
+}
+
+/** A Supabase session is privileged only when it matches the configured operator. */
+export function isConfiguredOperatorUser(user: User | null | undefined) {
+  if (!user) return false
+  const configuredId = process.env.OPERATOR_USER_ID?.trim() ?? ''
+  const configuredEmail = normalized(process.env.OPERATOR_EMAIL)
+  if (!configuredId && !configuredEmail) return false
+  return (
+    (Boolean(configuredId) && user.id === configuredId) ||
+    (Boolean(configuredEmail) && normalized(user.email) === configuredEmail)
+  )
+}
+
+export async function isAuthorizedOperatorSession() {
+  const supabase = await createClient()
+  const { data, error } = await supabase.auth.getUser()
+  return !error && isConfiguredOperatorUser(data.user)
+}
+
+/**
+ * Allows deterministic CI to exercise server actions without a real user.
+ * The bypass is disabled on Vercel and requires an explicit loopback runtime,
+ * GitHub Actions, CI mode, and an ephemeral runtime-local key.
+ */
+export function isDeterministicOperatorVerification() {
+  const runtimeBaseUrl = process.env.RUNTIME_BASE_URL ?? ''
+  const isLoopback =
+    runtimeBaseUrl.startsWith('http://127.0.0.1:') ||
+    runtimeBaseUrl.startsWith('http://localhost:')
+
+  return (
+    process.env.GITHUB_ACTIONS === 'true' &&
+    process.env.CI === 'true' &&
+    process.env.VERCEL !== '1' &&
+    !process.env.VERCEL_ENV &&
+    isLoopback &&
+    Boolean(process.env.JOB_PULL_API_KEY?.startsWith('runtime-local-'))
+  )
+}
+
+/**
+ * Requires either the explicitly configured Supabase operator or the signed
+ * single-user operator-access cookie before a server action may mutate data.
+ */
+export async function requireOperatorAccess() {
+  if (isDeterministicOperatorVerification()) return
+  if (await isAuthorizedOperatorSession()) return
+
+  if (!isJobPullAccessConfigured()) {
+    throw new Error(
+      'Configure OPERATOR_USER_ID or OPERATOR_EMAIL, or configure JOB_PULL_API_KEY for single-user operator access before changing pipeline data.'
+    )
+  }
+
+  const cookieStore = await cookies()
+  const accessToken = cookieStore.get(JOB_PULL_ACCESS_COOKIE)?.value ?? null
+  if (verifyJobPullAccessToken(accessToken)) return
+
+  throw new Error('Unlock operator access before changing job or application data.')
+}
+""")
+
+access_path = root / 'src/app/api/jobs/pull/access/route.ts'
+access = access_path.read_text()
+access = access.replace(
+    "import { isDeterministicOperatorVerification } from '@/lib/operator-auth'",
+    "import { isAuthorizedOperatorSession, isDeterministicOperatorVerification } from '@/lib/operator-auth'",
+)
+access = re.sub(
+    r"  const supabase = await createClient\(\)\n  const \{ data, error \} = await supabase\.auth\.getUser\(\)\n  const sessionAuthorized = !error && Boolean\(data\.user\)",
+    "  const sessionAuthorized = await isAuthorizedOperatorSession()",
+    access,
+    count=1,
+)
+access = access.replace("import { createClient } from '@/lib/supabase/server'\n", '')
+access_path.write_text(access)
+
+pull_path = root / 'src/app/api/jobs/pull/route.ts'
+pull = pull_path.read_text()
+pull = pull.replace(
+    "import { createClient as createServerClient } from '@/lib/supabase/server'",
+    "import { isAuthorizedOperatorSession } from '@/lib/operator-auth'",
+)
+pull = pull.replace(
+    "  const sessionClient = await createServerClient()\n  const { data, error } = await sessionClient.auth.getUser()\n  return !error && Boolean(data.user)",
+    "  return isAuthorizedOperatorSession()",
+)
+pull = pull.replace(
+    "  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL\n  const invocationKey =\n    process.env.SUPABASE_SERVICE_ROLE_KEY ??\n    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY\n\n  if (!supabaseUrl || !invocationKey) {",
+    "  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL\n  const invocationKey = process.env.SUPABASE_SERVICE_ROLE_KEY\n  const edgeSecret = process.env.JOB_PULL_API_KEY\n\n  if (!supabaseUrl || !invocationKey || !edgeSecret) {",
+)
+pull = pull.replace(
+    "{ ok: false, error: 'Missing Supabase URL or function invocation key' }",
+    "{ ok: false, error: 'Missing Supabase URL, service-role invocation key, or Edge pull secret' }",
+)
+pull = pull.replace(
+    "    body: { source: 'manual', triggered_at: new Date().toISOString() },\n    timeout: FUNCTION_TIMEOUT_MS,",
+    "    body: { source: 'manual', triggered_at: new Date().toISOString() },\n    headers: { 'x-job-pull-key': edgeSecret },\n    timeout: FUNCTION_TIMEOUT_MS,",
+)
+pull_path.write_text(pull)
+
+edge_path = root / 'supabase/functions/daily-job-pull/index.ts'
+edge = edge_path.read_text()
+edge = edge.replace(
+    "  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',",
+    "  'Access-Control-Allow-Headers': 'authorization, x-job-pull-key, x-client-info, apikey, content-type',",
+)
+marker = 'interface SearchTerms {'
+auth_helpers = """function timingSafeEqual(left: string, right: string): boolean {
+  const encoder = new TextEncoder()
+  const leftBytes = encoder.encode(left)
+  const rightBytes = encoder.encode(right)
+  const length = Math.max(leftBytes.length, rightBytes.length)
+  let difference = leftBytes.length ^ rightBytes.length
+  for (let index = 0; index < length; index += 1) {
+    difference |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0)
+  }
+  return difference === 0
+}
+
+function requestPullSecret(request: Request): string | null {
+  const explicit = request.headers.get('x-job-pull-key')?.trim()
+  if (explicit) return explicit
+  const authorization = request.headers.get('authorization')
+  if (!authorization?.startsWith('Bearer ')) return null
+  return authorization.slice('Bearer '.length).trim() || null
+}
+
+function isAuthorizedPullRequest(request: Request): boolean {
+  const expected = Deno.env.get('JOB_PULL_API_KEY')?.trim()
+  const supplied = requestPullSecret(request)
+  return Boolean(expected && supplied && timingSafeEqual(expected, supplied))
+}
+
+"""
+if 'function isAuthorizedPullRequest' not in edge:
+    if marker not in edge:
+        raise SystemExit('daily-job-pull insertion marker missing')
+    edge = edge.replace(marker, auth_helpers + marker, 1)
+serve_marker = "  if (req.method === 'OPTIONS') {\n    return new Response('ok', { headers: corsHeaders })\n  }\n\n  try {"
+serve_replacement = "  if (req.method === 'OPTIONS') {\n    return new Response('ok', { headers: corsHeaders })\n  }\n\n  if (!isAuthorizedPullRequest(req)) {\n    return new Response(JSON.stringify({ ok: false, error: 'Unauthorized job-pull request' }), {\n      status: 401,\n      headers: { ...corsHeaders, 'Content-Type': 'application/json' },\n    })\n  }\n\n  try {"
+if 'if (!isAuthorizedPullRequest(req))' not in edge:
+    if serve_marker not in edge:
+        raise SystemExit('daily-job-pull serve marker missing')
+    edge = edge.replace(serve_marker, serve_replacement, 1)
+edge_path.write_text(edge)
+
+env_path = root / '.env.example'
+env = env_path.read_text()
+if 'OPERATOR_USER_ID=' not in env:
+    env = env.replace(
+        '# Single-user operator authorization\n',
+        '# Supabase-session operator allowlist. A valid session is privileged only\n# when its user ID or normalized email matches one of these values.\nOPERATOR_USER_ID=\nOPERATOR_EMAIL=\n\n# Single-user operator authorization\n',
+    )
+if 'same value must be configured as a Supabase Edge Function secret' not in env:
+    env = env.replace(
+        'JOB_PULL_API_KEY=\n',
+        '# The same value must be configured as a Supabase Edge Function secret and\n# stored in Vault as job_pull_auth_key for the scheduled pull.\nJOB_PULL_API_KEY=\n',
+    )
+env_path.write_text(env)
+
+readme_path = root / 'README.md'
+readme = readme_path.read_text()
+if '### Operator authorization' not in readme:
+    readme += """
+
+### Operator authorization
+
+Supabase sessions receive operator privileges only when `OPERATOR_USER_ID` or `OPERATOR_EMAIL` matches the authenticated user. `JOB_PULL_API_KEY` remains the single-user browser unlock and must also be configured as the `daily-job-pull` Edge Function secret. The Vault secret `job_pull_auth_key` used by the scheduled pull must contain the same value.
+"""
+readme_path.write_text(readme)
+
+(root / 'tests/pr8-premerge-remediation.test.mjs').write_text("""import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import test from 'node:test'
+
+const root = process.cwd()
+const read = (name) => fs.readFileSync(path.join(root, name), 'utf8')
+
+test('migration versions are unique and PR8 security migrations follow main', () => {
+  const names = fs.readdirSync(path.join(root, 'supabase/migrations')).filter((name) => name.endsWith('.sql'))
+  const versions = names.map((name) => name.split('_', 1)[0])
+  assert.equal(new Set(versions).size, versions.length)
+  assert(names.includes('010_operator_boundary_rls.sql'))
+  assert(names.includes('011_jobs_effective_timestamp.sql'))
+  assert(!names.includes('008_operator_boundary_rls.sql'))
+  assert(!names.includes('009_jobs_effective_timestamp.sql'))
+})
+
+test('Supabase sessions are restricted to the configured operator identity', () => {
+  const auth = read('src/lib/operator-auth.ts')
+  assert.match(auth, /OPERATOR_USER_ID/)
+  assert.match(auth, /OPERATOR_EMAIL/)
+  assert.match(auth, /isConfiguredOperatorUser/)
+  assert.doesNotMatch(auth, /!error && data\.user\) return/)
+  assert.match(read('src/app/api/jobs/pull/access/route.ts'), /isAuthorizedOperatorSession/)
+  assert.match(read('src/app/api/jobs/pull/route.ts'), /isAuthorizedOperatorSession/)
+})
+
+test('the Next wrapper and Edge Function enforce the same pull secret', () => {
+  const route = read('src/app/api/jobs/pull/route.ts')
+  const edge = read('supabase/functions/daily-job-pull/index.ts')
+  assert.match(route, /x-job-pull-key/)
+  assert.match(route, /SUPABASE_SERVICE_ROLE_KEY/)
+  assert.match(edge, /isAuthorizedPullRequest/)
+  assert.match(edge, /JOB_PULL_API_KEY/)
+  assert.match(edge, /Unauthorized job-pull request/)
+})
+""")
