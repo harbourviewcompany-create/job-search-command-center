@@ -1,6 +1,7 @@
 import { SOURCE_QUALITY } from './canonicalize'
-import { normalizeEmploymentType, normalizeText, normalizeSeniority } from './normalize'
+import { normalizeEmploymentType, normalizeSeniority, normalizeText } from './normalize'
 import type {
+  JobProvider,
   ScoreDimensions,
   ScoreResult,
   ScoreThresholds,
@@ -97,12 +98,16 @@ function locationDimension(job: ScoringJob, profile: SearchProfile): { score: nu
   return { score: profile.remotePolicy === 'any' ? 60 : 25 }
 }
 
-function freshnessDimension(job: ScoringJob, maximumAgeDays: number): { score: number; ageDays: number | null } {
+function freshnessDimension(
+  job: ScoringJob,
+  maximumAgeDays: number,
+  now: Date
+): { score: number; ageDays: number | null } {
   const timestamp = job.postedAt ?? job.firstSeenAt
   if (!timestamp) return { score: 50, ageDays: null }
   const time = new Date(timestamp).getTime()
   if (Number.isNaN(time)) return { score: 50, ageDays: null }
-  const ageDays = Math.max(0, (Date.now() - time) / 86_400_000)
+  const ageDays = Math.max(0, (now.getTime() - time) / 86_400_000)
   return {
     score: clamp(100 - (ageDays / Math.max(maximumAgeDays, 1)) * 80),
     ageDays,
@@ -137,7 +142,7 @@ function seniorityDimension(job: ScoringJob, profile: SearchProfile): number {
 
 function sourceQualityDimension(source: string | null | undefined, profile: SearchProfile): number {
   if (!source) return 40
-  const configured = profile.sourcePriority?.[source as keyof typeof profile.sourcePriority]
+  const configured = profile.sourcePriority?.[source as JobProvider]
   if (typeof configured === 'number') return clamp(configured)
   return SOURCE_QUALITY[source] ?? 40
 }
@@ -145,8 +150,12 @@ function sourceQualityDimension(source: string | null | undefined, profile: Sear
 function employmentDisqualifier(job: ScoringJob, profile: SearchProfile): string | null {
   if (profile.employmentTypes.length === 0 || !job.employmentType) return null
   const normalized = normalizeEmploymentType(job.employmentType)
-  const accepted = profile.employmentTypes.map(normalizeEmploymentType).filter(Boolean)
-  return normalized && accepted.includes(normalized) ? null : 'Employment type is outside this search lane.'
+  const accepted = profile.employmentTypes
+    .map((value) => normalizeEmploymentType(value))
+    .filter((value): value is string => Boolean(value))
+  return normalized && accepted.includes(normalized)
+    ? null
+    : 'Employment type is outside this search lane.'
 }
 
 function tierFor(score: number, thresholds: ScoreThresholds): ScoreResult['tier'] {
@@ -187,10 +196,7 @@ export function scoreJob(
   const industryMatches = matchingPhrases(blob, industryTerms)
   const location = locationDimension(job, profile)
   const compensation = compensationDimension(job, profile)
-  const freshness = freshnessDimension(
-    { ...job, postedAt: job.postedAt, firstSeenAt: job.firstSeenAt },
-    profile.maximumPostingAgeDays
-  )
+  const freshness = freshnessDimension(job, profile.maximumPostingAgeDays, now)
 
   const dimensions: ScoreDimensions = {
     title: title.score,
@@ -220,9 +226,8 @@ export function scoreJob(
 
   const excludedTerm = profile.excludedTerms.find((term) => phraseMatches(blob, term))
   if (excludedTerm) disqualifiers.push(`Excluded term matched: ${excludedTerm}.`)
-  const excludedCompany = profile.excludedCompanies.find((company) =>
-    phraseMatches(normalizeText(job.companyName), company)
-  )
+  const companyBlob = normalizeText(job.companyName)
+  const excludedCompany = profile.excludedCompanies.find((company) => phraseMatches(companyBlob, company))
   if (excludedCompany) disqualifiers.push(`Company is excluded from this lane: ${excludedCompany}.`)
   if (profile.requiredTerms.length > 0 && requiredMatches.length === 0) {
     disqualifiers.push('None of the lane’s required concepts were found.')
@@ -236,7 +241,9 @@ export function scoreJob(
   }, 0)
   const weightTotal = Object.values(weights).reduce((total, value) => total + value, 0) || 1
   const hardDisqualified = disqualifiers.length > 0
-  const overallScore = round(hardDisqualified ? Math.min(20, weighted / weightTotal) : weighted / weightTotal)
+  const overallScore = round(
+    hardDisqualified ? Math.min(20, weighted / weightTotal) : weighted / weightTotal
+  )
 
   const reasons: string[] = []
   if (title.matches.length > 0) reasons.push(`Title aligns with ${title.matches[0]}.`)
@@ -248,21 +255,14 @@ export function scoreJob(
   if (job.salaryMin != null || job.salaryMax != null) reasons.push('Published compensation was evaluated.')
   if (reasons.length === 0) reasons.push('Limited explicit alignment; review the responsibilities manually.')
 
-  // Keep deterministic tests independent from wall-clock changes when a custom now is supplied.
-  if (options.now && (job.postedAt || job.firstSeenAt)) {
-    const timestamp = new Date(job.postedAt ?? job.firstSeenAt ?? '').getTime()
-    if (!Number.isNaN(timestamp)) {
-      const ageDays = Math.max(0, (now.getTime() - timestamp) / 86_400_000)
-      dimensions.freshness = clamp(100 - (ageDays / Math.max(profile.maximumPostingAgeDays, 1)) * 80)
-    }
-  }
+  const roundedDimensions = Object.fromEntries(
+    Object.entries(dimensions).map(([key, value]) => [key, round(value)])
+  ) as unknown as ScoreDimensions
 
   return {
     overallScore,
     tier: tierFor(overallScore, thresholds),
-    dimensions: Object.fromEntries(
-      Object.entries(dimensions).map(([key, value]) => [key, round(value)])
-    ) as unknown as ScoreDimensions,
+    dimensions: roundedDimensions,
     hardDisqualified,
     disqualifiers,
     reasons,
