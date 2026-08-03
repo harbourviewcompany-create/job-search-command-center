@@ -5,6 +5,8 @@ import { joinLocation, makePosting, requestJson } from './common.ts'
 interface LeverPosting {
   id: string
   text?: string
+  createdAt?: number | string
+  created_at?: number | string
   categories?: {
     location?: string
     allLocations?: string[]
@@ -28,6 +30,12 @@ interface LeverPosting {
   }
 }
 
+function leverDate(value: number | string | undefined): number | string | null {
+  if (value == null || value === '') return null
+  if (typeof value === 'number' && value > 0 && value < 10_000_000_000) return value * 1000
+  return value
+}
+
 export const leverAdapter: JobProviderAdapter = {
   provider: 'lever',
   async *discover(context: ProviderDiscoveryContext): AsyncGenerator<ProviderPage> {
@@ -47,7 +55,7 @@ export const leverAdapter: JobProviderAdapter = {
         fetchImpl: context.fetchImpl,
         signal: context.signal,
       })
-      if (!response.data) throw new Error(`Lever request failed: ${response.error ?? response.status}`)
+      if (!response.data) throw new Error(`Lever request failed: HTTP ${response.status}: ${response.error ?? 'unknown error'}`)
 
       const postings = response.data.map((job) => {
         const location = joinLocation([
@@ -72,7 +80,7 @@ export const leverAdapter: JobProviderAdapter = {
           description: [job.openingPlain, job.descriptionPlain, job.additionalPlain].filter(Boolean).join('\n\n'),
           sourceUrl: job.hostedUrl,
           applyUrl: job.applyUrl,
-          postedAt: null,
+          postedAt: leverDate(job.createdAt ?? job.created_at),
           employmentType: job.categories?.commitment,
           seniority: job.text,
           salaryMin: job.salaryRange?.min,
@@ -89,6 +97,7 @@ export const leverAdapter: JobProviderAdapter = {
         completeSnapshot: complete,
         requestsUsed: 1,
         httpStatus: response.status,
+        retryAfterSeconds: response.retryAfterSeconds,
       }
       if (complete) return
     }
