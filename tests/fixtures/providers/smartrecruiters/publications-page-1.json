@@ -1,0 +1,25 @@
+{
+  "limit": 100,
+  "offset": 0,
+  "totalFound": 1,
+  "content": [
+    {
+      "id": "sr-401",
+      "uuid": "sr-401",
+      "name": "Market Access Manager",
+      "releasedDate": "2026-08-02T12:00:00Z",
+      "postingUrl": "https://jobs.smartrecruiters.com/Acme/sr-401",
+      "applyUrl": "https://jobs.smartrecruiters.com/Acme/sr-401/apply",
+      "company": { "identifier": "Acme", "name": "Acme Markets" },
+      "location": { "city": "Ottawa", "region": "Ontario", "country": "Canada", "remote": false },
+      "experienceLevel": { "label": "Mid-Senior Level" },
+      "typeOfEmployment": { "label": "Full-time" },
+      "jobAd": {
+        "sections": {
+          "jobDescription": { "title": "Role", "text": "Build regulated-market access and cross-border partnerships." },
+          "qualifications": { "title": "Qualifications", "text": "Commercial development and international trade experience." }
+        }
+      }
+    }
+  ]
+}
