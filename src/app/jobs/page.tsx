@@ -17,7 +17,18 @@ const DEFAULT_PAGE_SIZE = 100
 const DATABASE_BATCH_SIZE = 1000
 const COMPANY_MATCH_LIMIT = 100
 const DERIVED_ROW_LIMIT = 5000
-const JOB_SOURCES: JobSource[] = ['indeed', 'ziprecruiter', 'manual', 'adzuna', 'linkedin', 'remoteok']
+const JOB_SOURCES: JobSource[] = [
+  'indeed',
+  'ziprecruiter',
+  'manual',
+  'adzuna',
+  'linkedin',
+  'remoteok',
+  'greenhouse',
+  'lever',
+  'ashby',
+  'smartrecruiters',
+]
 const STATUS_FILTERS: JobStatusFilter[] = ['active', 'all', 'found', 'interested', 'dismissed']
 const ARRANGEMENT_FILTERS: JobArrangementFilter[] = ['all', 'remote', 'hybrid', 'location']
 const SORT_OPTIONS: JobSort[] = ['fit', 'newest', 'oldest', 'company']

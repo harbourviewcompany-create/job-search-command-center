@@ -39,6 +39,7 @@ export function formatSource(source: JobSource | string) {
   if (normalized === 'remoteok') return 'Remote OK'
   if (normalized === 'linkedin') return 'LinkedIn'
   if (normalized === 'ziprecruiter') return 'ZipRecruiter'
+  if (normalized === 'smartrecruiters') return 'SmartRecruiters'
   return source.charAt(0).toUpperCase() + source.slice(1)
 }
 
