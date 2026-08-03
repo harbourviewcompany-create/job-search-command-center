@@ -396,8 +396,8 @@ BEGIN
       closed_at = NULL,
       source_count = (
         SELECT count(*)::integer
-        FROM job_source_postings
-        WHERE job_id = v_job_id
+        FROM job_source_postings AS source_posting
+        WHERE source_posting.job_id = v_job_id
       ),
       preferred_source = CASE
         WHEN v_new_rank > v_current_rank THEN p_source
