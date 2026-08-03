@@ -157,6 +157,10 @@ BEGIN
     p_apply_url
   );
 
+  -- Serialize all ingestion for one canonical identity. The second concurrent
+  -- transaction waits, then observes the first transaction's canonical job.
+  PERFORM pg_advisory_xact_lock(hashtextextended(v_canonical_key, 0));
+
   SELECT id
   INTO v_company_id
   FROM companies
@@ -454,6 +458,19 @@ BEGIN
     RETURN;
   END IF;
 
+  -- An empty complete response can be a provider outage, bad board key, or
+  -- upstream contract change. Never convert it into a mass-closure event.
+  IF cardinality(v_observed) = 0 THEN
+    UPDATE company_job_sources
+    SET last_checked_at = p_verified_at,
+        last_error = 'Complete snapshot returned zero postings; lifecycle changes suppressed.',
+        last_error_at = p_verified_at,
+        consecutive_failures = consecutive_failures + 1
+    WHERE id = p_company_job_source_id;
+    RETURN QUERY SELECT 0, 0;
+    RETURN;
+  END IF;
+
   WITH reopened AS (
     UPDATE job_source_postings
     SET lifecycle_status = 'open',
@@ -631,6 +648,7 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION job_search.recompute_job_lifecycle(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION job_search.ingest_job_source_posting(text,text,text,text,text,boolean,text,text,text,timestamptz,text,text,text,numeric,numeric,text,uuid,uuid,text,jsonb,timestamptz) FROM PUBLIC;
 REVOKE ALL ON FUNCTION job_search.mark_source_snapshot_complete(uuid,text[],boolean,timestamptz) FROM PUBLIC;
 REVOKE ALL ON FUNCTION job_search.expire_stale_aggregator_postings(interval,timestamptz) FROM PUBLIC;

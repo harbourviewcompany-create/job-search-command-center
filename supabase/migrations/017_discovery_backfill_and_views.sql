@@ -10,13 +10,13 @@ SET normalized_title = job_search.normalize_discovery_text(j.title),
         c.name,
         j.title,
         j.location,
-        coalesce(j.posted_at::timestamptz, j.fetched_at),
+        coalesce((j.posted_at::timestamp AT TIME ZONE 'UTC'), j.fetched_at),
         j.url
       )
     ),
     employment_type = coalesce(j.employment_type, j.job_type),
     remote_type = coalesce(j.remote_type, CASE WHEN j.remote THEN 'remote' ELSE 'unknown' END),
-    first_seen_at = coalesce(j.first_seen_at, j.posted_at::timestamptz, j.fetched_at),
+    first_seen_at = coalesce(j.first_seen_at, (j.posted_at::timestamp AT TIME ZONE 'UTC'), j.fetched_at),
     last_seen_at = coalesce(j.last_seen_at, j.fetched_at),
     last_verified_at = coalesce(j.last_verified_at, j.fetched_at),
     lifecycle_status = coalesce(j.lifecycle_status, 'open'),
@@ -36,13 +36,13 @@ SET normalized_title = job_search.normalize_discovery_text(title),
         coalesce(normalized_company, 'unknown company'),
         title,
         location,
-        coalesce(posted_at::timestamptz, fetched_at),
+        coalesce((posted_at::timestamp AT TIME ZONE 'UTC'), fetched_at),
         url
       )
     ),
     employment_type = coalesce(employment_type, job_type),
     remote_type = coalesce(remote_type, CASE WHEN remote THEN 'remote' ELSE 'unknown' END),
-    first_seen_at = coalesce(first_seen_at, posted_at::timestamptz, fetched_at),
+    first_seen_at = coalesce(first_seen_at, (posted_at::timestamp AT TIME ZONE 'UTC'), fetched_at),
     last_seen_at = coalesce(last_seen_at, fetched_at),
     last_verified_at = coalesce(last_verified_at, fetched_at),
     preferred_source = coalesce(preferred_source, source),
@@ -66,8 +66,8 @@ SELECT
   coalesce(c.name, 'Unknown'),
   j.location,
   j.description,
-  j.posted_at::timestamptz,
-  coalesce(j.first_seen_at, j.posted_at::timestamptz, j.fetched_at),
+  (j.posted_at::timestamp AT TIME ZONE 'UTC'),
+  coalesce(j.first_seen_at, (j.posted_at::timestamp AT TIME ZONE 'UTC'), j.fetched_at),
   coalesce(j.last_seen_at, j.fetched_at),
   coalesce(j.last_verified_at, j.fetched_at),
   coalesce(j.lifecycle_status, 'open'),
@@ -140,7 +140,7 @@ BEGIN
   SET title_aliases = (
         SELECT ARRAY(SELECT DISTINCT unnest(title_aliases || legacy_terms))
       ),
-      locations = CASE WHEN cardinality(legacy_locations) > 0 THEN legacy_locations ELSE locations END
+      locations = ARRAY(SELECT DISTINCT value FROM unnest(locations || legacy_locations) AS value WHERE nullif(trim(value), '') IS NOT NULL)
   WHERE id = profile_id;
 
   FOREACH term_value IN ARRAY legacy_terms LOOP

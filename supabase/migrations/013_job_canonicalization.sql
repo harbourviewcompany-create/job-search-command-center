@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS job_search.job_source_postings (
     )
   ),
   external_id text NOT NULL,
-  company_job_source_id uuid REFERENCES job_search.company_job_sources(id) ON DELETE SET NULL,
+  company_job_source_id uuid REFERENCES job_search.company_job_sources(id) ON DELETE RESTRICT,
   search_profile_id uuid REFERENCES job_search.search_profiles(id) ON DELETE SET NULL,
   source_url text,
   apply_url text,

@@ -3,34 +3,173 @@ name: UI Remediation Verify
 on:
   push:
     branches:
-      - feat/job-discovery-v2
+      - internal-ui-remediation-20260731
+    paths-ignore:
+      - docs/verification/UI_REMEDIATION_CI.md
+  pull_request:
+    branches:
+      - main
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: apply-v2-database-remediation
-  cancel-in-progress: false
+  group: ui-remediation-verify-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  apply:
+  verify:
+    name: Typecheck, lint, test, and build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
+    env:
+      CI: true
+      NEXT_TELEMETRY_DISABLED: 1
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ui-verification-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: ui-verification-placeholder
+      JOB_PULL_API_KEY: ui-verification-placeholder
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Checkout branch without persisted credentials
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          persist-credentials: true
-      - name: Apply database remediation
-        run: python3 scripts/apply-v2-database-remediation.py
-      - name: Restore workflow and commit
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install committed dependencies
+        id: install
         shell: bash
         run: |
-          set -euo pipefail
-          git show f3ff18ed7d88b210ad166d363f31e4c446197ccc:.github/workflows/ui-remediation-verify.yml > .github/workflows/ui-remediation-verify.yml
-          git rm scripts/apply-v2-database-remediation.py
-          git add -A
-          git config user.name "harbourviewcompany-create"
-          git config user.email "231706713+harbourviewcompany-create@users.noreply.github.com"
-          git commit -m "fix: harden discovery database lifecycle"
-          git push origin HEAD:feat/job-discovery-v2
+          set +e
+          npm ci --no-audit --no-fund > /tmp/install.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/install.log
+          exit 0
+
+      - name: Typecheck
+        id: typecheck
+        shell: bash
+        run: |
+          if [ "${{ steps.install.outputs.exit_code }}" != "0" ]; then
+            echo "Dependency installation failed; typecheck skipped." | tee /tmp/typecheck.log
+            echo "exit_code=125" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          npm run typecheck > /tmp/typecheck.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/typecheck.log
+          exit 0
+
+      - name: Lint
+        id: lint
+        shell: bash
+        run: |
+          if [ "${{ steps.install.outputs.exit_code }}" != "0" ]; then
+            echo "Dependency installation failed; lint skipped." | tee /tmp/lint.log
+            echo "exit_code=125" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          npm run lint > /tmp/lint.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/lint.log
+          exit 0
+
+      - name: Unit tests
+        id: tests
+        shell: bash
+        run: |
+          if [ "${{ steps.install.outputs.exit_code }}" != "0" ]; then
+            echo "Dependency installation failed; tests skipped." | tee /tmp/tests.log
+            echo "exit_code=125" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          npm test > /tmp/tests.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/tests.log
+          exit 0
+
+      - name: Production build
+        id: build
+        shell: bash
+        run: |
+          if [ "${{ steps.install.outputs.exit_code }}" != "0" ]; then
+            echo "Dependency installation failed; build skipped." | tee /tmp/build.log
+            echo "exit_code=125" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          npm run build > /tmp/build.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/build.log
+          exit 0
+
+      - name: Write verification report
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p qa/ui-remediation
+          {
+            echo "# UI Remediation CI Verification"
+            echo
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo "- Workflow run: \`${GITHUB_RUN_ID}\`"
+            echo "- Event: \`${GITHUB_EVENT_NAME}\`"
+            echo "- Generated: \`$(date -u +'%Y-%m-%dT%H:%M:%SZ')\`"
+            echo "- Repository mutation performed: \`no\`"
+            echo
+            echo "| Check | Exit code |"
+            echo "|---|---:|"
+            echo "| npm ci | ${{ steps.install.outputs.exit_code }} |"
+            echo "| npm run typecheck | ${{ steps.typecheck.outputs.exit_code }} |"
+            echo "| npm run lint | ${{ steps.lint.outputs.exit_code }} |"
+            echo "| npm test | ${{ steps.tests.outputs.exit_code }} |"
+            echo "| npm run build | ${{ steps.build.outputs.exit_code }} |"
+            echo
+            for entry in install typecheck lint tests build; do
+              echo "## ${entry} log tail"
+              echo
+              echo '```text'
+              tail -n 80 "/tmp/${entry}.log" 2>/dev/null || true
+              echo '```'
+              echo
+            done
+          } > qa/ui-remediation/UI_REMEDIATION_CI.md
+
+      - name: Upload verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-remediation-verification-${{ github.run_id }}
+          path: qa/ui-remediation
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce verification gate
+        if: always()
+        shell: bash
+        run: |
+          codes=(
+            "${{ steps.install.outputs.exit_code }}"
+            "${{ steps.typecheck.outputs.exit_code }}"
+            "${{ steps.lint.outputs.exit_code }}"
+            "${{ steps.tests.outputs.exit_code }}"
+            "${{ steps.build.outputs.exit_code }}"
+          )
+          for code in "${codes[@]}"; do
+            if [ -z "$code" ] || [ "$code" != "0" ]; then
+              exit 1
+            fi
+          done
