@@ -30,8 +30,34 @@ import { getProviderAdapter } from '../_shared/providers/index.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-job-pull-key, x-client-info, apikey, content-type',
   'Content-Type': 'application/json',
+}
+
+function timingSafeEqual(left: string, right: string): boolean {
+  const encoder = new TextEncoder()
+  const leftBytes = encoder.encode(left)
+  const rightBytes = encoder.encode(right)
+  const length = Math.max(leftBytes.length, rightBytes.length)
+  let difference = leftBytes.length ^ rightBytes.length
+  for (let index = 0; index < length; index += 1) {
+    difference |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0)
+  }
+  return difference === 0
+}
+
+function requestPullSecret(request: Request): string | null {
+  const explicit = request.headers.get('x-job-pull-key')?.trim()
+  if (explicit) return explicit
+  const authorization = request.headers.get('authorization')
+  if (!authorization?.startsWith('Bearer ')) return null
+  return authorization.slice('Bearer '.length).trim() || null
+}
+
+function isAuthorizedPullRequest(request: Request): boolean {
+  const expected = Deno.env.get('JOB_PULL_API_KEY')?.trim()
+  const supplied = requestPullSecret(request)
+  return Boolean(expected && supplied && timingSafeEqual(expected, supplied))
 }
 
 interface TriggerBody {
@@ -105,6 +131,9 @@ async function getAdzunaCredentials(supabase: any) {
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (request.method !== 'POST') return json({ ok: false, error: 'Method not allowed' }, 405)
+  if (!isAuthorizedPullRequest(request)) {
+    return json({ ok: false, error: 'Unauthorized job-pull request' }, 401)
+  }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
