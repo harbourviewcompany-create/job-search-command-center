@@ -5,6 +5,7 @@ import { ApplicationDetailActions } from '@/components/ApplicationDetailActions'
 import { NotesForm } from '@/components/NotesForm'
 import { GeneratePackageButton } from '@/components/GeneratePackageButton'
 import { OutreachPanel } from '@/components/OutreachPanel'
+import type { JobWithCompany } from '@/types/database'
 import Link from 'next/link'
 import { ArrowLeft, ExternalLink } from 'lucide-react'
 
@@ -26,7 +27,7 @@ export default async function ApplicationDetailPage({
 
   if (!app) notFound()
 
-  const job = app.jobs as any
+  const job = app.jobs as unknown as JobWithCompany
   const hasPackage = Boolean(app.resume_version_id || app.cover_note)
 
   let storedResume: string | null = null
@@ -41,7 +42,7 @@ export default async function ApplicationDetailPage({
     storedDocxUrl = version?.docx_url ?? null
   }
 
-  const companyId = job.company_id as string | null
+  const companyId = job.company_id
   const { data: contacts } = companyId
     ? await supabase
         .from('contacts')

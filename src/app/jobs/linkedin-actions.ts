@@ -1,13 +1,15 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { requireOperatorAccess } from '@/lib/operator-auth'
+import { createServiceClient } from '@/lib/supabase/server'
 import { scoreJobAgainstProfile } from '@/lib/scoring'
 import { getProfile } from '@/lib/profile'
 import { parseLinkedInJobId } from '@/lib/linkedin'
 
 export async function importLinkedInJob(formData: FormData) {
-  const supabase = await createClient()
+  await requireOperatorAccess()
+  const supabase = createServiceClient()
 
   const url = String(formData.get('url') || '').trim()
   const title = String(formData.get('title') || '').trim()
@@ -23,7 +25,6 @@ export async function importLinkedInJob(formData: FormData) {
   const jobId = parseLinkedInJobId(url)
   const externalId = jobId ?? url
 
-  // Company upsert
   let companyId: string | null = null
   const { data: existingCompany } = await supabase
     .from('companies')
@@ -46,7 +47,6 @@ export async function importLinkedInJob(formData: FormData) {
   const profile = await getProfile(supabase)
   const fit = scoreJobAgainstProfile({ title, description, location, remote }, profile)
 
-  // Dedupe on linkedin + external_id
   const { data: existing } = await supabase
     .from('jobs')
     .select('id')
@@ -55,7 +55,7 @@ export async function importLinkedInJob(formData: FormData) {
     .maybeSingle()
 
   if (existing) {
-    await supabase
+    const { error } = await supabase
       .from('jobs')
       .update({
         title,
@@ -69,6 +69,7 @@ export async function importLinkedInJob(formData: FormData) {
         fetched_at: new Date().toISOString(),
       })
       .eq('id', existing.id)
+    if (error) throw new Error(error.message)
   } else {
     const { error } = await supabase.from('jobs').insert({
       source: 'linkedin',

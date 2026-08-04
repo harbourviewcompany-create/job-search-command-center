@@ -74,6 +74,7 @@ export interface Database {
           url: string | null
           posted_at: string | null
           fetched_at: string
+          effective_at: string
           status: JobStatus
           fit_score: number | null
           fit_reasons: string[] | null

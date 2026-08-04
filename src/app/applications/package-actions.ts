@@ -1,7 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { requireOperatorAccess } from '@/lib/operator-auth'
+import { createServiceClient } from '@/lib/supabase/server'
 import { tailorPackageWithAI } from '@/lib/package'
 import { getProfile, profileToResumeMarkdown } from '@/lib/profile'
 import { resumeMarkdownToDocxBuffer, resumeFilename } from '@/lib/docx'
@@ -10,7 +11,8 @@ import type { JobWithCompany } from '@/types/database'
 const RESUME_BUCKET = 'resumes'
 
 export async function generatePackage(applicationId: string) {
-  const supabase = await createClient()
+  await requireOperatorAccess()
+  const supabase = createServiceClient()
 
   const { data: app, error } = await supabase
     .from('applications')
@@ -58,13 +60,7 @@ export async function generatePackage(applicationId: string) {
     const filename = resumeFilename(job.companies?.name, job.title)
     const path = `${applicationId}/${Date.now()}-${filename}`
 
-    // Prefer service role for Storage writes when available
-    const uploader =
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-        ? createServiceClient()
-        : supabase
-
-    const { error: upErr } = await uploader.storage
+    const { error: upErr } = await supabase.storage
       .from(RESUME_BUCKET)
       .upload(path, buffer, {
         contentType:
@@ -73,23 +69,21 @@ export async function generatePackage(applicationId: string) {
       })
 
     if (!upErr) {
-      const { data: pub } = uploader.storage
+      const { data: pub } = supabase.storage
         .from(RESUME_BUCKET)
         .getPublicUrl(path)
       docxUrl = pub?.publicUrl ?? null
 
-      // If bucket is private, create a signed URL instead
       if (!docxUrl || docxUrl.includes('undefined')) {
-        const { data: signed } = await uploader.storage
+        const { data: signed } = await supabase.storage
           .from(RESUME_BUCKET)
-          .createSignedUrl(path, 60 * 60 * 24 * 30) // 30 days
+          .createSignedUrl(path, 60 * 60 * 24 * 30)
         docxUrl = signed?.signedUrl ?? null
       }
     } else {
       console.error('docx upload failed', upErr.message)
     }
   } catch (err) {
-    // Package still succeeds without docx
     console.error('docx generation failed', err)
   }
 

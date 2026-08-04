@@ -14,7 +14,33 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.47.10'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-job-pull-key, x-client-info, apikey, content-type',
+}
+
+function timingSafeEqual(left: string, right: string): boolean {
+  const encoder = new TextEncoder()
+  const leftBytes = encoder.encode(left)
+  const rightBytes = encoder.encode(right)
+  const length = Math.max(leftBytes.length, rightBytes.length)
+  let difference = leftBytes.length ^ rightBytes.length
+  for (let index = 0; index < length; index += 1) {
+    difference |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0)
+  }
+  return difference === 0
+}
+
+function requestPullSecret(request: Request): string | null {
+  const explicit = request.headers.get('x-job-pull-key')?.trim()
+  if (explicit) return explicit
+  const authorization = request.headers.get('authorization')
+  if (!authorization?.startsWith('Bearer ')) return null
+  return authorization.slice('Bearer '.length).trim() || null
+}
+
+function isAuthorizedPullRequest(request: Request): boolean {
+  const expected = Deno.env.get('JOB_PULL_API_KEY')?.trim()
+  const supplied = requestPullSecret(request)
+  return Boolean(expected && supplied && timingSafeEqual(expected, supplied))
 }
 
 interface SearchTerms {
@@ -322,6 +348,13 @@ async function fetchRemoteOK(terms: string[]): Promise<NormalizedJob[]> {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
+  }
+
+  if (!isAuthorizedPullRequest(req)) {
+    return new Response(JSON.stringify({ ok: false, error: 'Unauthorized job-pull request' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
   }
 
   try {

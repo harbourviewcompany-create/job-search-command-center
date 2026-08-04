@@ -1,24 +1,32 @@
 'use client'
 
 import { useRef, useState, useTransition } from 'react'
-import { importLinkedInJob } from '@/app/jobs/linkedin-actions'
+import { useRouter } from 'next/navigation'
 import { Linkedin } from 'lucide-react'
+import { importLinkedInJob } from '@/app/jobs/linkedin-actions'
 
 export function LinkedInImportForm() {
   const formRef = useRef<HTMLFormElement>(null)
   const [pending, startTransition] = useTransition()
-  const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
+  const router = useRouter()
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const formData = new FormData(e.currentTarget)
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formData = new FormData(event.currentTarget)
+    setMessage(null)
+
     startTransition(async () => {
       try {
         await importLinkedInJob(formData)
-        setError(null)
         formRef.current?.reset()
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Import failed')
+        setMessage({ tone: 'success', text: 'LinkedIn job imported and scored.' })
+        router.refresh()
+      } catch (error) {
+        setMessage({
+          tone: 'error',
+          text: error instanceof Error ? error.message : 'Import failed',
+        })
       }
     })
   }
@@ -28,9 +36,10 @@ export function LinkedInImportForm() {
       ref={formRef}
       onSubmit={handleSubmit}
       className="card space-y-4 border-[#0A66C2]/20 p-5"
+      aria-busy={pending}
     >
       <h2 className="flex items-center gap-2 font-medium">
-        <Linkedin className="h-4 w-4 text-[#0A66C2]" />
+        <Linkedin className="h-4 w-4 text-[#0A66C2]" aria-hidden="true" />
         Import from LinkedIn
       </h2>
       <p className="text-xs text-slate-500">
@@ -91,7 +100,13 @@ export function LinkedInImportForm() {
           placeholder="Paste key bullets from the LinkedIn posting…"
         />
       </div>
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      <div aria-live="polite" className="min-h-5">
+        {message && (
+          <p className={message.tone === 'error' ? 'text-xs text-red-600' : 'text-xs text-emerald-700'}>
+            {message.text}
+          </p>
+        )}
+      </div>
       <div className="flex justify-end">
         <button type="submit" disabled={pending} className="btn-primary">
           {pending ? 'Importing…' : 'Import & score'}

@@ -1,106 +1,398 @@
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
+import { JobsCommandCenter } from '@/components/JobsCommandCenter'
+import {
+  JOB_PULL_ACCESS_COOKIE,
+  isJobPullAccessConfigured,
+  verifyJobPullAccessToken,
+} from '@/lib/job-pull-auth'
+import { filterAndSortJobs, type JobFilterState } from '@/lib/jobs'
 import { createClient } from '@/lib/supabase/server'
-import { JobCard } from '@/components/JobCard'
-import { AddJobForm } from '@/components/AddJobForm'
-import { PullJobsButton } from '@/components/PullJobsButton'
-import { LinkedInImportForm } from '@/components/LinkedInImportForm'
-import { LinkedInSearchLinks } from '@/components/LinkedInSearchLinks'
-import type { JobWithCompany } from '@/types/database'
+import type { JobArrangementFilter, JobSort, JobStatusFilter } from '@/lib/jobs'
+import type { JobSource, JobWithCompany } from '@/types/database'
 
 export const dynamic = 'force-dynamic'
 
-export default async function JobsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ tab?: string }>
-}) {
-  const { tab = 'found' } = await searchParams
-  const supabase = await createClient()
+const DEFAULT_PAGE_SIZE = 100
+const DATABASE_BATCH_SIZE = 1000
+const COMPANY_MATCH_LIMIT = 100
+const DERIVED_ROW_LIMIT = 5000
+const JOB_SOURCES: JobSource[] = ['indeed', 'ziprecruiter', 'manual', 'adzuna', 'linkedin', 'remoteok']
+const STATUS_FILTERS: JobStatusFilter[] = ['active', 'all', 'found', 'interested', 'dismissed']
+const ARRANGEMENT_FILTERS: JobArrangementFilter[] = ['all', 'remote', 'hybrid', 'location']
+const SORT_OPTIONS: JobSort[] = ['fit', 'newest', 'oldest', 'company']
 
-  const statusFilter = tab === 'interested' ? 'interested' : 'found'
+type SearchValue = string | string[] | undefined
 
-  const [{ data: jobs }, { data: searchSetting }] = await Promise.all([
-    supabase
-      .from('jobs')
-      .select('*, companies(*)')
-      .eq('status', statusFilter)
-      .order('fit_score', { ascending: false, nullsFirst: false }),
-    supabase.from('settings').select('value').eq('key', 'search_terms').maybeSingle(),
-  ])
-
-  const search = (searchSetting?.value as { terms?: string[]; locations?: string[] }) ?? {}
-  const terms = search.terms ?? [
-    'business development manager',
-    'account executive',
-  ]
-  const locations = search.locations ?? ['Ottawa', 'Ontario', 'Remote']
-
-  const typedJobs = (jobs ?? []) as JobWithCompany[]
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Jobs</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Ranked by fit. Pull from Adzuna, open LinkedIn searches, or import a
-            LinkedIn listing. Mark Interested to stage a tailored package.
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          <PullJobsButton />
-          <div className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1">
-            <TabLink href="/jobs?tab=found" active={tab !== 'interested'}>
-              To triage
-            </TabLink>
-            <TabLink href="/jobs?tab=interested" active={tab === 'interested'}>
-              Interested
-            </TabLink>
-          </div>
-        </div>
-      </div>
-
-      <LinkedInSearchLinks terms={terms} locations={locations} />
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <LinkedInImportForm />
-        <AddJobForm />
-      </div>
-
-      <div className="space-y-3">
-        {typedJobs.length === 0 && (
-          <div className="card px-5 py-12 text-center text-sm text-slate-400">
-            {tab === 'interested'
-              ? 'No interested jobs yet. Mark some from the triage list.'
-              : 'No jobs yet. Pull from Adzuna, open LinkedIn, or import a listing.'}
-          </div>
-        )}
-        {typedJobs.map((job) => (
-          <JobCard key={job.id} job={job} />
-        ))}
-      </div>
-    </div>
-  )
+interface JobsPageProps {
+  searchParams: Promise<{
+    page?: SearchValue
+    q?: SearchValue
+    status?: SearchValue
+    source?: SearchValue
+    arrangement?: SearchValue
+    sort?: SearchValue
+  }>
 }
 
-function TabLink({
-  href,
-  active,
-  children,
-}: {
-  href: string
-  active: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <a
-      href={href}
-      className={
-        active
-          ? 'rounded-md bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-700'
-          : 'rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50'
+function firstValue(value: SearchValue) {
+  return Array.isArray(value) ? value[0] : value
+}
+
+function parsePage(value: SearchValue) {
+  const parsed = Number.parseInt(firstValue(value) ?? '1', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+}
+
+function parseChoice<T extends string>(value: SearchValue, choices: readonly T[], fallback: T) {
+  const candidate = firstValue(value)
+  return candidate && choices.includes(candidate as T) ? (candidate as T) : fallback
+}
+
+function configuredPageSize() {
+  const parsed = Number.parseInt(process.env.JOBS_PAGE_SIZE ?? '', 10)
+  return Number.isFinite(parsed) && parsed >= 10 && parsed <= 250
+    ? parsed
+    : DEFAULT_PAGE_SIZE
+}
+
+function parseFilters(params: Awaited<JobsPageProps['searchParams']>): JobFilterState {
+  return {
+    query: (firstValue(params.q) ?? '').trim(),
+    status: parseChoice(params.status, STATUS_FILTERS, 'active'),
+    source: parseChoice(params.source, ['all', ...JOB_SOURCES] as const, 'all'),
+    arrangement: parseChoice(params.arrangement, ARRANGEMENT_FILTERS, 'all'),
+    sort: parseChoice(params.sort, SORT_OPTIONS, 'fit'),
+  }
+}
+
+function jobsHref(filters: JobFilterState, page: number) {
+  const params = new URLSearchParams()
+  if (filters.query) params.set('q', filters.query)
+  if (filters.status !== 'active') params.set('status', filters.status)
+  if (filters.source !== 'all') params.set('source', filters.source)
+  if (filters.arrangement !== 'all') params.set('arrangement', filters.arrangement)
+  if (filters.sort !== 'fit') params.set('sort', filters.sort)
+  if (page > 1) params.set('page', String(page))
+  const query = params.toString()
+  return query ? `/jobs?${query}` : '/jobs'
+}
+
+function searchPatterns(value: string) {
+  const normalized = value
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!normalized) return []
+
+  const variants = new Set([normalized])
+  const mojibakeVariant = Buffer.from(normalized, 'utf8').toString('latin1')
+  if (mojibakeVariant !== normalized) variants.add(mojibakeVariant)
+  return Array.from(variants, (variant) => `*${variant}*`)
+}
+
+function quotePostgrestFilterValue(value: string) {
+  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
+}
+
+function jobSearchClauses(patterns: string[], companyIds: string[]) {
+  const clauses = patterns.flatMap((pattern) => {
+    const value = quotePostgrestFilterValue(pattern)
+    return [
+      `title.ilike.${value}`,
+      `location.ilike.${value}`,
+      `description.ilike.${value}`,
+      `job_type.ilike.${value}`,
+      `source.ilike.${value}`,
+    ]
+  })
+  if (companyIds.length > 0) clauses.push(`company_id.in.(${companyIds.join(',')})`)
+  return clauses
+}
+
+function statusValues(filters: JobFilterState) {
+  if (filters.status === 'active') return ['found', 'interested'] as const
+  if (filters.status === 'all') return ['found', 'interested', 'dismissed'] as const
+  return [filters.status] as const
+}
+
+async function matchingCompanyIds(query: string) {
+  const patterns = searchPatterns(query)
+  if (patterns.length === 0) {
+    return { ids: [] as string[], error: null as string | null, truncated: false }
+  }
+
+  const supabase = await createClient()
+  let companyQuery = supabase
+    .from('companies')
+    .select('id')
+    .limit(COMPANY_MATCH_LIMIT + 1)
+  companyQuery = patterns.length === 1
+    ? companyQuery.ilike('name', patterns[0].replaceAll('*', '%'))
+    : companyQuery.or(
+        patterns
+          .map((pattern) => `name.ilike.${quotePostgrestFilterValue(pattern)}`)
+          .join(',')
+      )
+
+  const { data, error } = await companyQuery
+  const ids = (data ?? []).map((company) => company.id)
+  const truncated = ids.length > COMPANY_MATCH_LIMIT
+  return {
+    ids: ids.slice(0, COMPANY_MATCH_LIMIT),
+    error:
+      error?.message ??
+      (truncated
+        ? `Company-name search exceeded ${COMPANY_MATCH_LIMIT} matches; refine the query for complete results.`
+        : null),
+    truncated,
+  }
+}
+
+function applyDatabaseOrder<T extends {
+  order: (column: string, options?: { ascending?: boolean; nullsFirst?: boolean }) => T
+}>(query: T, sort: JobSort) {
+  if (sort === 'newest') {
+    return query
+      .order('effective_at', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: true })
+  }
+  if (sort === 'oldest') {
+    return query
+      .order('effective_at', { ascending: true, nullsFirst: false })
+      .order('id', { ascending: true })
+  }
+  return query
+    .order('fit_score', { ascending: false, nullsFirst: false })
+    .order('effective_at', { ascending: false, nullsFirst: false })
+    .order('id', { ascending: true })
+}
+
+async function loadDatabasePage(
+  filters: JobFilterState,
+  requestedPage: number,
+  pageSize: number,
+  companyIds: string[]
+) {
+  const supabase = await createClient()
+  const clauses = jobSearchClauses(searchPatterns(filters.query), companyIds)
+
+  let countQuery = supabase
+    .from('jobs')
+    .select('id', { count: 'exact', head: true })
+    .in('status', statusValues(filters))
+  if (filters.source !== 'all') countQuery = countQuery.eq('source', filters.source)
+  if (clauses.length > 0) countQuery = countQuery.or(clauses.join(','))
+
+  const { count, error: countError } = await countQuery
+  if (countError) {
+    return {
+      rows: [] as JobWithCompany[],
+      total: 0,
+      page: 1,
+      totalPages: 1,
+      error: countError.message,
+    }
+  }
+
+  const total = count ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const page = Math.min(requestedPage, totalPages)
+
+  let dataQuery = supabase
+    .from('jobs')
+    .select('*, companies(*)')
+    .in('status', statusValues(filters))
+  if (filters.source !== 'all') dataQuery = dataQuery.eq('source', filters.source)
+  if (clauses.length > 0) dataQuery = dataQuery.or(clauses.join(','))
+
+  const from = (page - 1) * pageSize
+  const { data, error } = await applyDatabaseOrder(dataQuery, filters.sort)
+    .range(from, from + pageSize - 1)
+
+  if (error) {
+    return {
+      rows: [] as JobWithCompany[],
+      total: 0,
+      page: 1,
+      totalPages: 1,
+      error: error.message,
+    }
+  }
+
+  return {
+    rows: (data ?? []) as JobWithCompany[],
+    total,
+    page,
+    totalPages,
+    error: null as string | null,
+  }
+}
+
+async function loadDerivedPage(
+  filters: JobFilterState,
+  requestedPage: number,
+  pageSize: number,
+  companyIds: string[]
+) {
+  const supabase = await createClient()
+  const rows: JobWithCompany[] = []
+  const clauses = jobSearchClauses(searchPatterns(filters.query), companyIds)
+
+  let countQuery = supabase
+    .from('jobs')
+    .select('id', { count: 'exact', head: true })
+    .in('status', statusValues(filters))
+  if (filters.source !== 'all') countQuery = countQuery.eq('source', filters.source)
+  if (clauses.length > 0) countQuery = countQuery.or(clauses.join(','))
+
+  const { count: candidateCount, error: countError } = await countQuery
+  if (countError) {
+    return {
+      rows: [] as JobWithCompany[],
+      total: 0,
+      page: 1,
+      totalPages: 1,
+      error: countError.message,
+    }
+  }
+  if ((candidateCount ?? 0) > DERIVED_ROW_LIMIT) {
+    return {
+      rows: [] as JobWithCompany[],
+      total: 0,
+      page: 1,
+      totalPages: 1,
+      error: `This computed filter matches more than ${DERIVED_ROW_LIMIT} jobs. Refine the filters before sorting by company or arrangement.`,
+    }
+  }
+
+  for (let from = 0; from < (candidateCount ?? 0); from += DATABASE_BATCH_SIZE) {
+    let query = supabase
+      .from('jobs')
+      .select('*, companies(*)')
+      .in('status', statusValues(filters))
+      .order('id', { ascending: true })
+
+    if (filters.source !== 'all') query = query.eq('source', filters.source)
+    if (clauses.length > 0) query = query.or(clauses.join(','))
+
+    const { data, error } = await query.range(from, from + DATABASE_BATCH_SIZE - 1)
+    if (error) {
+      return {
+        rows: [] as JobWithCompany[],
+        total: 0,
+        page: 1,
+        totalPages: 1,
+        error: error.message,
       }
-    >
-      {children}
-    </a>
+    }
+
+    const batch = (data ?? []) as JobWithCompany[]
+    rows.push(...batch)
+    if (batch.length < DATABASE_BATCH_SIZE) break
+  }
+
+  const filtered = filterAndSortJobs(rows, filters)
+  const total = filtered.length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const page = Math.min(requestedPage, totalPages)
+  const from = (page - 1) * pageSize
+
+  return {
+    rows: filtered.slice(from, from + pageSize),
+    total,
+    page,
+    totalPages,
+    error: null as string | null,
+  }
+}
+
+export default async function JobsPage({ searchParams }: JobsPageProps) {
+  const supabase = await createClient()
+  const cookieStore = await cookies()
+  const params = await searchParams
+  const requestedPage = parsePage(params.page)
+  const pageSize = configuredPageSize()
+  const filters = parseFilters(params)
+
+  const companyMatchResult = await matchingCompanyIds(filters.query)
+  const usesDerivedDatabaseFields =
+    filters.arrangement !== 'all' || filters.sort === 'company'
+  const jobsResult = usesDerivedDatabaseFields
+    ? await loadDerivedPage(filters, requestedPage, pageSize, companyMatchResult.ids)
+    : await loadDatabasePage(filters, requestedPage, pageSize, companyMatchResult.ids)
+
+  if (requestedPage !== jobsResult.page) {
+    redirect(jobsHref(filters, jobsResult.page))
+  }
+
+  const [
+    authResult,
+    searchSettingResult,
+    appliedResult,
+    interviewResult,
+    offerResult,
+    triageCountResult,
+    interestedCountResult,
+    dismissedCountResult,
+  ] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.from('settings').select('value').eq('key', 'search_terms').maybeSingle(),
+    supabase.from('applications').select('*', { count: 'exact', head: true }).eq('status', 'applied'),
+    supabase.from('applications').select('*', { count: 'exact', head: true }).eq('status', 'interview'),
+    supabase.from('applications').select('*', { count: 'exact', head: true }).eq('status', 'offer'),
+    supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('status', 'found'),
+    supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('status', 'interested'),
+    supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('status', 'dismissed'),
+  ])
+
+  const search =
+    (searchSettingResult.data?.value as {
+      terms?: string[]
+      locations?: string[]
+    } | null) ?? {}
+
+  const terms = search.terms ?? ['business development manager', 'account executive']
+  const locations = search.locations ?? ['Ottawa', 'Ontario', 'Remote']
+  const pullAccessToken = cookieStore.get(JOB_PULL_ACCESS_COOKIE)?.value ?? null
+  const pullAuthorized = Boolean(authResult.data.user) || verifyJobPullAccessToken(pullAccessToken)
+
+  const errors = [
+    companyMatchResult.error,
+    jobsResult.error,
+    searchSettingResult.error?.message,
+    appliedResult.error?.message,
+    interviewResult.error?.message,
+    offerResult.error?.message,
+    triageCountResult.error?.message,
+    interestedCountResult.error?.message,
+    dismissedCountResult.error?.message,
+  ].filter(Boolean)
+
+  return (
+    <JobsCommandCenter
+      initialJobs={jobsResult.rows}
+      metrics={{
+        triage: triageCountResult.count ?? 0,
+        interested: interestedCountResult.count ?? 0,
+        dismissed: dismissedCountResult.count ?? 0,
+        applied: appliedResult.count ?? 0,
+        interviews: interviewResult.count ?? 0,
+        offers: offerResult.count ?? 0,
+      }}
+      filters={filters}
+      sources={JOB_SOURCES}
+      pagination={{
+        page: jobsResult.page,
+        pageSize,
+        total: jobsResult.total,
+        totalPages: jobsResult.totalPages,
+      }}
+      pullAuthorized={pullAuthorized}
+      pullAccessConfigured={isJobPullAccessConfigured()}
+      terms={terms}
+      locations={locations}
+      loadError={errors.length > 0 ? Array.from(new Set(errors)).join(' ') : null}
+    />
   )
 }

@@ -1,0 +1,54 @@
+name: Runtime Browser Result Reporter
+
+on:
+  workflow_run:
+    workflows:
+      - Runtime Browser Verify
+    types:
+      - completed
+    branches:
+      - internal-ui-remediation-20260731
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-browser-reporter-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  report:
+    name: Report deterministic runtime result to PR 8
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only this completion-triggered job posts the final runtime result.
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Report completed runtime workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUNTIME_RUN_ID: ${{ github.event.workflow_run.id }}
+          RUNTIME_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUNTIME_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${REPOSITORY}"
+          body=$(jq -n \
+            --arg sha "${SOURCE_SHA}" \
+            --arg run "${RUNTIME_RUN_ID}" \
+            --arg url "${RUNTIME_RUN_URL}" \
+            --arg conclusion "${RUNTIME_CONCLUSION}" \
+            '{body: ("Deterministic runtime verification completed for `" + $sha + "`.\n\n- Workflow run: [" + $run + "](" + $url + ")\n- Conclusion: **" + $conclusion + "**\n- Merge performed: **no**\n- Production deployment performed: **no**") }')
+
+          curl --fail --silent --show-error \
+            -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${api}/issues/8/comments" \
+            -d "${body}"

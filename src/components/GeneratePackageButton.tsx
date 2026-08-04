@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import Link from 'next/link'
 import { generatePackage } from '@/app/applications/package-actions'
 import { FileText, Copy, Check, Download } from 'lucide-react'
 
@@ -24,13 +25,23 @@ export function GeneratePackageButton({
   } | null>(null)
   const [copied, setCopied] = useState<'resume' | 'cover' | null>(null)
   const [copyError, setCopyError] = useState<string | null>(null)
+  const [generateError, setGenerateError] = useState<string | null>(null)
 
   const docxUrl = result?.docxUrl ?? initialDocxUrl
 
   function handleGenerate() {
+    setGenerateError(null)
     startTransition(async () => {
-      const pkg = await generatePackage(applicationId)
-      setResult(pkg)
+      try {
+        const pkg = await generatePackage(applicationId)
+        setResult(pkg)
+      } catch (caughtError) {
+        setGenerateError(
+          caughtError instanceof Error && caughtError.message
+            ? caughtError.message
+            : 'The tailored package could not be generated.'
+        )
+      }
     })
   }
 
@@ -73,6 +84,14 @@ export function GeneratePackageButton({
         )}
       </div>
 
+      {generateError && (
+        <p role="alert" className="text-sm leading-6 text-red-700">
+          {generateError}{' '}
+          <Link href="/jobs" className="font-semibold underline underline-offset-2">
+            Open Jobs to unlock operator access.
+          </Link>
+        </p>
+      )}
       {copyError && <p className="text-xs text-red-600">{copyError}</p>}
       {result?.source && (
         <p className="text-xs text-slate-500">
