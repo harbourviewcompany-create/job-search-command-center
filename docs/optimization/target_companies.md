@@ -1,6 +1,18 @@
 # Target Company Watchlist — Tyler Campbell
 Maintain this list in the Command Center (or Notion). Review open roles weekly via company career pages + Greenhouse/Lever/Ashby public endpoints + LinkedIn.
 
+## Tier 0 — Fast-Track (call this week, not applying-and-waiting)
+These are the fastest realistic path to a paycheck — days, not weeks — and are
+seeded in the Command Center's Cash Plays as `job_lead` opportunities
+(migration `011_fast_track_agencies.sql`). Call, don't just submit online.
+
+- **LRO Staffing** — full-service Ottawa agency, broad industry coverage
+- **Local Staffing** — Ottawa-only, fast temp placements, closed weekends
+- **Stevenson & White Recruitment** — permanent/contract/temp since 2000
+- **Aplin** — national reach, family-owned, wide sector coverage
+
+Run this track in parallel with Tier 1–3 below, not instead of it.
+
 ## Tier 1 — Highest priority (strong experience match)
 
 ### HVAC / Building Solutions
