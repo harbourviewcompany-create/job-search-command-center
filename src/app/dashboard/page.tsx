@@ -6,6 +6,8 @@ import {
   CheckCircle2,
   Clock,
   DollarSign,
+  Send,
+  Users,
   Zap,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
@@ -36,6 +38,39 @@ type AppliedApplication = QueueApplication & {
   applied_at: string | null
 }
 
+type ReadyToApplyRow = {
+  overall_score: number
+  jobs: {
+    id: string
+    title: string
+    companies: DashboardCompany
+    applications: { id: string }[]
+  } | null
+}
+
+type DraftedOutreach = {
+  id: string
+  type: string
+  applications: { id: string; jobs: { title: string; companies: DashboardCompany } | null } | null
+}
+
+type NetworkMatch = { company_name: string; contact_name: string; contact_title: string | null }
+
+/** Today's 5: a single ranked queue mixing ready-to-send applications,
+ *  drafted follow-ups, and top prospect plays — with a "you know someone
+ *  here" nudge wherever an imported network contact matches the company.
+ *  Beats a job board because it removes the "what should I even do right
+ *  now" decision, not just because it lists more jobs. */
+type TodayItem = {
+  key: string
+  kind: 'apply' | 'follow_up' | 'prospect'
+  title: string
+  subtitle: string
+  href: string
+  cta: string
+  networkNudge?: string
+}
+
 export default async function DashboardPage() {
   const supabase = await createClient()
 
@@ -48,15 +83,18 @@ export default async function DashboardPage() {
     { data: needsPackage },
     { data: appliedApps },
     { data: followUpSetting },
+    { data: readyToApplyRaw },
+    { data: draftedOutreachRaw },
+    { data: networkMatchesRaw },
   ] = await Promise.all([
     supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('status', 'found'),
     supabase.from('jobs').select('*', { count: 'exact', head: true }).eq('status', 'interested'),
     supabase.from('applications').select('*', { count: 'exact', head: true }).eq('status', 'applied'),
     supabase
-      .from('jobs')
-      .select('id, title, location, remote, fit_score, fit_reasons, companies(name)')
-      .eq('status', 'found')
-      .order('fit_score', { ascending: false, nullsFirst: false })
+      .from('job_scores')
+      .select('overall_score, jobs!inner(id, title, location, remote, companies(name))')
+      .eq('hard_disqualified', false)
+      .order('overall_score', { ascending: false })
       .limit(5),
     supabase
       .from('opportunities')
@@ -78,12 +116,88 @@ export default async function DashboardPage() {
       .order('applied_at', { ascending: true })
       .limit(50),
     supabase.from('settings').select('value').eq('key', 'follow_up_offsets').maybeSingle(),
+    supabase
+      .from('job_scores')
+      .select('overall_score, jobs!inner(id, title, companies(name), applications!inner(id))')
+      .eq('jobs.applications.status', 'interested')
+      .not('jobs.applications.resume_version_id', 'is', null)
+      .order('overall_score', { ascending: false })
+      .limit(3),
+    supabase
+      .from('outreach_messages')
+      .select('id, type, applications(id, jobs(title, companies(name)))')
+      .eq('status', 'drafted')
+      .order('scheduled_for', { ascending: true })
+      .limit(3),
+    supabase.from('network_matches').select('company_name, contact_name, contact_title'),
   ])
 
-  const typedTopJobs = (topJobs ?? []) as unknown as DashboardJob[]
+  const typedTopJobs = (topJobs ?? []) as unknown as { overall_score: number; jobs: DashboardJob | null }[]
   const typedNeedsPackage = (needsPackage ?? []) as unknown as QueueApplication[]
   const typedAppliedApps = (appliedApps ?? []) as unknown as AppliedApplication[]
   const typedCashPlays = (cashPlays ?? []) as Opportunity[]
+  const typedReadyToApply = (readyToApplyRaw ?? []) as unknown as ReadyToApplyRow[]
+  const typedDraftedOutreach = (draftedOutreachRaw ?? []) as unknown as DraftedOutreach[]
+  const networkMatches = (networkMatchesRaw ?? []) as NetworkMatch[]
+
+  const networkByCompany = new Map<string, NetworkMatch>()
+  for (const match of networkMatches) {
+    const key = normalizeDisplayText(match.company_name).toLowerCase()
+    if (key && !networkByCompany.has(key)) networkByCompany.set(key, match)
+  }
+  const nudgeFor = (companyName?: string | null) => {
+    const key = normalizeDisplayText(companyName).toLowerCase()
+    const match = key ? networkByCompany.get(key) : undefined
+    if (!match) return undefined
+    return `You know ${match.contact_name}${match.contact_title ? ` (${match.contact_title})` : ''} there`
+  }
+
+  const followUpTypeLabel: Record<string, string> = {
+    initial: 'Send outreach',
+    follow_up_1: 'Send follow-up',
+    follow_up_2: 'Send second follow-up',
+  }
+
+  const todaysFive: TodayItem[] = [
+    ...typedReadyToApply
+      .filter((row) => row.jobs && row.jobs.applications?.[0]?.id)
+      .map((row) => {
+        const job = row.jobs!
+        const applicationId = job.applications[0].id
+        return {
+          key: `apply-${applicationId}`,
+          kind: 'apply' as const,
+          title: normalizeDisplayText(job.title, 'Untitled role'),
+          subtitle: `${normalizeDisplayText(job.companies?.name, 'Unknown company')} · Package ready · Fit ${Math.round(row.overall_score)}`,
+          href: `/applications/${applicationId}`,
+          cta: 'Review & apply',
+          networkNudge: nudgeFor(job.companies?.name),
+        }
+      }),
+    ...typedDraftedOutreach
+      .filter((row) => row.applications)
+      .map((row) => {
+        const app = row.applications!
+        return {
+          key: `followup-${row.id}`,
+          kind: 'follow_up' as const,
+          title: normalizeDisplayText(app.jobs?.title, 'Application'),
+          subtitle: `${normalizeDisplayText(app.jobs?.companies?.name)} · Draft ready`,
+          href: `/applications/${app.id}`,
+          cta: followUpTypeLabel[row.type] ?? 'Review & send',
+          networkNudge: nudgeFor(app.jobs?.companies?.name),
+        }
+      }),
+    ...typedCashPlays.slice(0, 2).map((opportunity) => ({
+      key: `prospect-${opportunity.id}`,
+      kind: 'prospect' as const,
+      title: normalizeDisplayText(opportunity.title, 'Untitled opportunity'),
+      subtitle: `${normalizeDisplayText(opportunity.company_or_channel)} · ${normalizeDisplayText(opportunity.time_to_cash, 'Timing TBD')}`,
+      href: '/opportunities',
+      cta: 'Reach out',
+      networkNudge: nudgeFor(opportunity.company_or_channel),
+    })),
+  ].slice(0, 5)
 
   const followUp1Days =
     (followUpSetting?.value as { follow_up_1_days?: number } | null)?.follow_up_1_days ?? 5
@@ -104,9 +218,10 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Today’s actions</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Today&apos;s 5</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Highest-fit jobs and commercial plays. Generate a package, apply, or run a cash play.
+          The five highest-value moves right now — ready-to-send applications, drafted
+          follow-ups, and warm prospects — not a job board to scroll.
         </p>
       </div>
 
@@ -127,58 +242,63 @@ export default async function DashboardPage() {
       <section className="card border-brand-100 bg-gradient-to-br from-white to-brand-50/30">
         <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
           <Zap className="h-4 w-4 text-brand-600" aria-hidden="true" />
-          <h2 className="font-medium">Do these next</h2>
+          <h2 className="font-medium">Today&apos;s 5</h2>
         </div>
         <ol className="divide-y divide-slate-100">
-          {typedNeedsPackage.length === 0 && typedTopJobs.length === 0 && (
+          {todaysFive.length === 0 && (
             <li className="px-5 py-8 text-center text-sm text-slate-400">
-              Add jobs on the Jobs page (or run migration 002 for cash plays). Top fits will show here.
+              Nothing queued yet — run &quot;Pull jobs now&quot; on the Jobs page. High-fit roles
+              auto-assemble a ready-to-send package here once scored.
             </li>
           )}
-          {typedNeedsPackage.map((app, index) => (
-            <li key={app.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
+          {todaysFive.map((item, index) => (
+            <li key={item.key} className="flex items-center justify-between gap-3 px-5 py-3.5">
               <div className="min-w-0">
-                <p className="text-xs font-medium text-brand-600">
-                  {index + 1}. Generate package
+                <p className="flex items-center gap-2 text-xs font-medium text-brand-600">
+                  {index + 1}.{' '}
+                  {item.kind === 'apply' ? 'Ready to apply' : item.kind === 'follow_up' ? 'Follow-up ready' : 'Warm prospect'}
                 </p>
-                <p className="truncate text-sm font-medium">
-                  {normalizeDisplayText(app.jobs?.title, 'Application')}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {normalizeDisplayText(app.jobs?.companies?.name)}
-                </p>
+                <p className="truncate text-sm font-medium">{item.title}</p>
+                <p className="text-xs text-slate-500">{item.subtitle}</p>
+                {item.networkNudge && (
+                  <p className="mt-0.5 flex items-center gap-1 text-xs font-medium text-violet-600">
+                    <Users className="h-3 w-3" aria-hidden="true" /> {item.networkNudge}
+                  </p>
+                )}
               </div>
-              <Link href={`/applications/${app.id}`} className="btn-primary shrink-0 text-xs">
-                Open
-              </Link>
-            </li>
-          ))}
-          {typedTopJobs.slice(0, 3).map((job, index) => (
-            <li key={job.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-slate-500">
-                  {typedNeedsPackage.length + index + 1}. Triage high-fit job
-                  {job.fit_score != null && (
-                    <span className="ml-2 badge bg-brand-50 text-brand-700">
-                      {job.fit_score}
-                    </span>
-                  )}
-                </p>
-                <p className="truncate text-sm font-medium">
-                  {normalizeDisplayText(job.title, 'Untitled role')}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {normalizeDisplayText(job.companies?.name, 'Unknown')}
-                  {job.location ? ` · ${normalizeDisplayText(job.location)}` : ''}
-                </p>
-              </div>
-              <Link href="/jobs" className="btn-secondary shrink-0 text-xs">
-                Triage
+              <Link href={item.href} className="btn-primary shrink-0 text-xs">
+                {item.cta}
               </Link>
             </li>
           ))}
         </ol>
       </section>
+
+      {typedNeedsPackage.length > 0 && (
+        <section className="card">
+          <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
+            <Send className="h-4 w-4 text-slate-500" aria-hidden="true" />
+            <h2 className="font-medium">Still assembling</h2>
+          </div>
+          <ol className="divide-y divide-slate-100">
+            {typedNeedsPackage.map((app) => (
+              <li key={app.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {normalizeDisplayText(app.jobs?.title, 'Application')}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {normalizeDisplayText(app.jobs?.companies?.name)}
+                  </p>
+                </div>
+                <Link href={`/applications/${app.id}`} className="btn-secondary shrink-0 text-xs">
+                  Generate package
+                </Link>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {dueFollowUps.length > 0 && (
         <section className="card">
@@ -224,29 +344,27 @@ export default async function DashboardPage() {
                 No scored jobs yet. Add one manually — it will auto-score against your profile.
               </li>
             )}
-            {typedTopJobs.map((job) => (
-              <li key={job.id} className="px-5 py-3.5">
+            {typedTopJobs.map((row) => (
+              <li key={row.jobs?.id ?? row.overall_score} className="px-5 py-3.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">
-                      {normalizeDisplayText(job.title, 'Untitled role')}
+                      {normalizeDisplayText(row.jobs?.title, 'Untitled role')}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {normalizeDisplayText(job.companies?.name, 'Unknown')}
-                      {job.location ? ` · ${normalizeDisplayText(job.location)}` : ''}
-                      {job.remote ? ' · Remote' : ''}
+                      {normalizeDisplayText(row.jobs?.companies?.name, 'Unknown')}
+                      {row.jobs?.location ? ` · ${normalizeDisplayText(row.jobs.location)}` : ''}
+                      {row.jobs?.remote ? ' · Remote' : ''}
                     </p>
-                    {Array.isArray(job.fit_reasons) && job.fit_reasons[0] && (
-                      <p className="mt-0.5 text-xs text-slate-400">
-                        {normalizeDisplayText(job.fit_reasons[0])}
+                    {nudgeFor(row.jobs?.companies?.name) && (
+                      <p className="mt-0.5 flex items-center gap-1 text-xs font-medium text-violet-600">
+                        <Users className="h-3 w-3" aria-hidden="true" /> {nudgeFor(row.jobs?.companies?.name)}
                       </p>
                     )}
                   </div>
-                  {job.fit_score != null && (
-                    <span className="badge shrink-0 bg-brand-50 text-brand-700">
-                      {job.fit_score}
-                    </span>
-                  )}
+                  <span className="badge shrink-0 bg-brand-50 text-brand-700">
+                    {Math.round(row.overall_score)}
+                  </span>
                 </div>
               </li>
             ))}

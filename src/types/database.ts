@@ -1257,8 +1257,59 @@ export type Database = {
         }
         Relationships: []
       }
+      network_contacts: {
+        Row: {
+          id: string
+          name: string
+          company_raw: string | null
+          title: string | null
+          linkedin_url: string | null
+          email: string | null
+          relationship_note: string | null
+          source: string
+          imported_batch_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          company_raw?: string | null
+          title?: string | null
+          linkedin_url?: string | null
+          email?: string | null
+          relationship_note?: string | null
+          source?: string
+          imported_batch_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          company_raw?: string | null
+          title?: string | null
+          linkedin_url?: string | null
+          email?: string | null
+          relationship_note?: string | null
+          source?: string
+          imported_batch_id?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
+      network_matches: {
+        Row: {
+          network_contact_id: string | null
+          contact_name: string | null
+          contact_title: string | null
+          contact_linkedin_url: string | null
+          contact_company: string | null
+          company_id: string | null
+          company_name: string | null
+        }
+        Relationships: []
+      }
       canonical_job_sources: {
         Row: {
           job_id: string | null

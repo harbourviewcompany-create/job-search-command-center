@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Settings,
   Trello,
+  Users,
 } from 'lucide-react'
 
 export interface NavigationItem {
@@ -16,10 +17,11 @@ export interface NavigationItem {
 
 /** Shared primary navigation used by mobile and desktop application shells. */
 export const primaryNavigation: readonly NavigationItem[] = [
-  { href: '/dashboard', label: "Today's actions", icon: LayoutDashboard },
+  { href: '/dashboard', label: "Today's 5", icon: LayoutDashboard },
   { href: '/jobs', label: 'Jobs', icon: BriefcaseBusiness },
   { href: '/applications', label: 'Pipeline', icon: Trello },
   { href: '/opportunities', label: 'Cash plays', icon: DollarSign },
+  { href: '/network', label: 'Network', icon: Users },
   { href: '/contacts', label: 'Contacts', icon: ContactRound },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]

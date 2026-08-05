@@ -128,6 +128,151 @@ async function getAdzunaCredentials(supabase: any) {
   return { appId, appKey }
 }
 
+/**
+ * Beyond-a-job-board, step 3: applications assemble themselves before Tyler
+ * ever opens the app. For any un-actioned job scoring above the configured
+ * threshold, this creates the 'interested' application and a deterministic
+ * tailored resume/cover draft — no ANTHROPIC_API_KEY dependency, so it can't
+ * fail this pipeline. The polished AI + .docx version stays available
+ * on-demand via the existing "Generate Package" button; this just means
+ * there's already something ready to review instead of a blank slate.
+ */
+async function autoAssemblePackages(supabase: any): Promise<number> {
+  try {
+    const { data: setting } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'auto_assembly')
+      .maybeSingle()
+    const config = (setting?.value as { min_score?: number; max_per_run?: number; enabled?: boolean } | null) ?? {}
+    if (config.enabled === false) return 0
+    const minScore = config.min_score ?? 75
+    const maxPerRun = config.max_per_run ?? 10
+
+    const { data: profileSetting } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'profile')
+      .maybeSingle()
+    const profile = (profileSetting?.value as Record<string, any> | null) ?? DEFAULT_PROFILE_FALLBACK
+
+    const { data: candidates, error } = await supabase
+      .from('job_scores')
+      .select('job_id, overall_score, jobs!inner(id, title, description, location, url, applications(id), companies(name))')
+      .gte('overall_score', minScore)
+      .eq('hard_disqualified', false)
+      .order('overall_score', { ascending: false })
+      .limit(50)
+
+    if (error) {
+      console.error('auto-assembly candidate query failed', error)
+      return 0
+    }
+
+    let assembled = 0
+    for (const row of candidates ?? []) {
+      if (assembled >= maxPerRun) break
+      const job = (row as any).jobs
+      if (!job) continue
+      const hasApplication = Array.isArray(job.applications) && job.applications.length > 0
+      if (hasApplication) continue
+
+      const companyName = job.companies?.name ?? 'your team'
+      const { resumeMarkdown, coverNote } = deterministicTailor(
+        { title: job.title, description: job.description, companyName },
+        profile
+      )
+
+      const { data: application, error: appError } = await supabase
+        .from('applications')
+        .insert({ job_id: job.id, status: 'interested', notes: 'Auto-assembled — review before applying.' })
+        .select('id')
+        .maybeSingle()
+      if (appError || !application) {
+        if (appError?.code !== '23505') console.error('auto-assembly application insert failed', appError)
+        continue
+      }
+
+      const { data: resumeVersion, error: resumeError } = await supabase
+        .from('resume_versions')
+        .insert({ application_id: application.id, content: resumeMarkdown })
+        .select('id')
+        .maybeSingle()
+      if (resumeError) {
+        console.error('auto-assembly resume_versions insert failed', resumeError)
+      } else if (resumeVersion) {
+        await supabase
+          .from('applications')
+          .update({ resume_version_id: resumeVersion.id, cover_note: coverNote })
+          .eq('id', application.id)
+      }
+
+      assembled += 1
+    }
+    return assembled
+  } catch (error) {
+    console.error('autoAssemblePackages failed', error)
+    return 0
+  }
+}
+
+const DEFAULT_PROFILE_FALLBACK = {
+  name: 'Tyler Campbell',
+  headline: 'Business Development · Account Management · International Trade',
+  location: 'Ottawa, Ontario, Canada',
+  email: 'harbourviewcompany@gmail.com',
+  linkedin: 'linkedin.com/in/wtylercampbell',
+  summary:
+    'Results-driven business development and account management professional with 20+ years of experience building client relationships, opening new markets, and driving revenue.',
+  skills: ['Business Development', 'Account Management', 'B2B Sales', 'Client Relationship Management'],
+  experience_highlights: [
+    'Managed and grew a $6-8M HVAC account portfolio, delivering a 20% year-over-year increase in sales',
+    'Built and maintain a curated global network of 6,000+ industry professionals',
+    'Recruited critical talent and managed full-cycle candidate pipelines for senior roles',
+  ],
+}
+
+function deterministicTailor(
+  job: { title: string; description?: string | null; companyName: string },
+  profile: Record<string, any>
+) {
+  const jd = `${job.title} ${job.description ?? ''}`.toLowerCase()
+  const skills: string[] = profile.skills ?? DEFAULT_PROFILE_FALLBACK.skills
+  const highlights: string[] = profile.experience_highlights ?? DEFAULT_PROFILE_FALLBACK.experience_highlights
+
+  const scoredHighlights = highlights
+    .map((h) => {
+      const words = h.toLowerCase().split(/\W+/).filter((w) => w.length > 4)
+      const hits = words.filter((w) => jd.includes(w)).length
+      return { h, hits }
+    })
+    .sort((a, b) => b.hits - a.hits)
+  const focusBullets = scoredHighlights.slice(0, 4).map((s) => s.h)
+
+  const matchedSkills = skills.filter((s) => jd.includes(String(s).toLowerCase()))
+  const orderedSkills = [...matchedSkills, ...skills.filter((s) => !matchedSkills.includes(s))]
+
+  const resumeMarkdown = `# ${profile.name ?? DEFAULT_PROFILE_FALLBACK.name}
+${profile.headline ?? DEFAULT_PROFILE_FALLBACK.headline}
+${profile.location ?? DEFAULT_PROFILE_FALLBACK.location} · ${profile.email ?? DEFAULT_PROFILE_FALLBACK.email} · ${profile.linkedin ?? DEFAULT_PROFILE_FALLBACK.linkedin}
+
+## Professional Summary
+${profile.summary ?? DEFAULT_PROFILE_FALLBACK.summary} Tailored for the ${job.title} role at ${job.companyName}.
+
+## Core Competencies
+${orderedSkills.join(' · ')}
+
+## Selected Experience
+${focusBullets.map((b) => `• ${b}`).join('\n')}
+`
+
+  const coverNote = `I'm applying for the ${job.title} role at ${job.companyName}. ${
+    focusBullets[0] ? focusBullets[0] + '. ' : ''
+  }I'd welcome the chance to bring this track record to your team — auto-drafted, please review and personalize before sending.`
+
+  return { resumeMarkdown, coverNote }
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (request.method !== 'POST') return json({ ok: false, error: 'Method not allowed' }, 405)
@@ -429,6 +574,7 @@ Deno.serve(async (request) => {
     }
 
     await expireStaleAggregators(supabase, 60)
+    const assembled = await autoAssemblePackages(supabase)
     const status = totals.errors === 0 ? 'completed' : totals.postingsFetched > 0 ? 'partial' : 'failed'
     await finishDiscoveryRun(supabase, runId, totals, {
       status,
@@ -454,6 +600,7 @@ Deno.serve(async (request) => {
       requests_used: totals.requestsUsed,
       postings_fetched: totals.postingsFetched,
       providers: [...totals.providers],
+      auto_assembled: assembled,
       errors,
     }, status === 'failed' ? 500 : 200)
   } catch (error) {
